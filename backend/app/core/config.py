@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -8,9 +8,10 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str
     jwt_secret: str = Field(min_length=32)
-    jwt_algorithm: str
+    jwt_algorithm: Literal["HS256"]
     access_token_expire_minutes: int = Field(gt=0)
     refresh_token_expire_days: int = Field(gt=0)
+    refresh_cookie_secure: bool
     cors_origins: Annotated[list[AnyHttpUrl], NoDecode]
 
     model_config = SettingsConfigDict(

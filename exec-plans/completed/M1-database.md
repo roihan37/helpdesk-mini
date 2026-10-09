@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented and re-verified on 2026-10-09. Ready for review; the plan remains active
-until reviewer approval.
+Completed on 2026-10-09 after implementation and independent Phase 3/4 verification.
+No critical M1 blocker remains.
 
 ## Objectives and Scope
 
@@ -32,9 +32,8 @@ Verified on 2026-10-09:
 - `alembic current` connects successfully and `alembic heads` is empty, as expected before M1.
 - `Base.metadata` currently has no domain tables.
 
-Administrative prerequisite note: M0 remains at `exec-plans/active/M0-foundation.md`,
-and its final review checkbox is unchecked. The user explicitly approved M1 implementation
-on 2026-10-09. This execution did not move or alter M0.
+Historical prerequisite note: M0 was still awaiting administrative closure when M1 began.
+It has since been reviewed and is stored at `exec-plans/completed/M0-foundation.md`.
 
 ## Files to Create or Modify
 
@@ -347,5 +346,6 @@ Focused database test suite:
 
 ### Milestone Review Status
 
-**READY FOR REVIEW.** All M1 acceptance criteria have executable evidence. The plan remains in
-`active/`; it has not been moved to `completed/`, and no later milestone has been started.
+**COMPLETE.** All M1 acceptance criteria have executable evidence. The plan was confirmed in
+`completed/` during the M2 prerequisite review on 2026-10-09. No later milestone implementation
+has been started.
