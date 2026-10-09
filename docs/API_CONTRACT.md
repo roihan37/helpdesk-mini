@@ -34,13 +34,14 @@ Any approved contract change must update this document and the affected implemen
 
 ### 1.1 Source of Truth
 
-Follow these references:
+The original SVO Connect technical assessment remains authoritative when available. Within this repository, follow:
 
-1. Original SVO Connect technical assessment.
-2. `docs/REQUIREMENTS.md`.
-3. `docs/SECURITY.md`, when available.
+1. `docs/REQUIREMENTS.md`.
+2. `docs/SECURITY.md`.
+3. This API contract.
 4. `ARCHITECTURE.md`.
-5. This API contract.
+5. The active execution plan.
+6. Existing source code and tests.
 
 **MUST** means explicitly required by the assessment.
 
@@ -282,11 +283,14 @@ For browser authentication:
 Recommended cookie properties:
 
 - `HttpOnly=true`.
-- `Secure=true` in HTTPS environments.
-- Appropriate `SameSite` configuration.
+- `SameSite=Lax` for the selected same-site setup.
 - `Path=/auth/refresh`.
+- `Secure=true` over HTTPS.
+- `Secure=false` only for local HTTP development.
 
 Use allowed-origin validation and CSRF protection appropriate to the cookie deployment configuration.
+
+Future genuinely cross-site deployments require `SameSite=None`, HTTPS (`Secure=true`), and appropriate CSRF protection.
 
 For different frontend/backend origins, configure CORS with explicit allowed origins and credential support.
 
@@ -422,6 +426,8 @@ POST /auth/refresh
 The browser sends the refresh token through its HttpOnly cookie.
 
 No JSON request body is required.
+
+API clients such as Postman can test refresh by retaining the login response cookie in a cookie jar and sending it to this endpoint. JSON-body refresh tokens are not part of this contract.
 
 **Response**
 

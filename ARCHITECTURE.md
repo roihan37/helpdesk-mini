@@ -385,8 +385,9 @@ Selected implementation approach:
 
 - Keep access tokens in memory.
 - Use an HttpOnly cookie for persistent refresh-token handling.
-- Configure `Secure` appropriately for HTTPS environments.
-- Restrict cookie scope and SameSite settings.
+- Use `SameSite=Lax` for the selected same-site setup.
+- Scope the cookie to `Path=/auth/refresh`.
+- Use `Secure=true` over HTTPS and `Secure=false` only for local HTTP development.
 - Do not persist refresh tokens in localStorage.
 - Automatically attempt refresh when appropriate.
 - Redirect to `/login` when authentication cannot be restored.
@@ -394,6 +395,8 @@ Selected implementation approach:
 The login API must still satisfy the assessment requirement to return access and refresh tokens. The frontend should avoid persisting the returned refresh-token body.
 
 Cross-origin cookie handling and CORS must be explicitly configured when frontend and backend have different origins.
+
+Future genuinely cross-site cookie deployments require `SameSite=None`, HTTPS, and appropriate CSRF protection. API tools such as Postman can exercise refresh by retaining the login cookie in a cookie jar; JSON-body refresh is not part of the selected contract.
 
 ### 7.4 Password Security
 
@@ -1056,8 +1059,8 @@ Do not silently alter these decisions.
 |---|---|
 | M0 | Harness, documentation, project foundation |
 | M1 | Database models and Alembic migrations |
-| M2 | Authentication and user management |
-| M3 | Multi-tenant authorization |
+| M2 | JWT authentication and business user management, with Admin-only and own-business enforcement on user endpoints |
+| M3 | Comprehensive multi-tenant authorization audit, strengthening, and isolation tests; not the first introduction of authorization |
 | M4 | Ticket management |
 | M5 | WebSocket real-time chat |
 | M6 | Next.js frontend |

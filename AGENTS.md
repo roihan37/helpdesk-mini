@@ -54,25 +54,22 @@ Do not introduce additional technologies without a clear requirement or document
 
 ## 3. Source of Truth
 
-Read the relevant project documentation before making changes.
+The original SVO Connect assessment defines the mandatory project requirements.
 
-Priority order:
+Within this repository, use:
 
-1. Original SVO Connect technical assessment.
-2. `docs/REQUIREMENTS.md`
-3. `docs/SECURITY.md`
+1. `docs/REQUIREMENTS.md`
+2. `docs/SECURITY.md`
+3. `docs/API_CONTRACT.md`
 4. `ARCHITECTURE.md`
-5. `docs/API_CONTRACT.md`
-6. Active milestone in `exec-plans/active/`
-7. Existing implementation and tests.
+5. Current active execution plan.
+6. Existing implementation and tests.
 
-If instructions conflict, do not silently choose an interpretation.
+The original assessment takes precedence if an inconsistency is found and the source is available. Do not assume the original assessment PDF is present in this repository.
 
-Report the conflict and propose the smallest compliant resolution.
+Never invent requirements.
 
-Do not invent requirements.
-
-If a specification is ambiguous, document the assumption before implementation.
+Report documentation conflicts before implementation.
 
 ## 4. Repository Structure
 
@@ -466,8 +463,8 @@ Project milestones:
 
 - M0: Harness and project foundation.
 - M1: Database models and migrations.
-- M2: JWT authentication and user management.
-- M3: Multi-tenant authorization.
+- M2: JWT authentication and business user management, including Admin-only permissions and own-business enforcement for user-management endpoints.
+- M3: Comprehensive multi-tenant authorization verification, strengthening, and isolation testing. Authorization and tenant isolation must already be implemented with every protected endpoint introduced in earlier milestones.
 - M4: Ticket management.
 - M5: WebSocket chat.
 - M6: Frontend implementation.

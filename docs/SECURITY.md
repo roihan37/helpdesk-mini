@@ -413,14 +413,15 @@ Cookie configuration:
 
 ```text
 HttpOnly = true
-Secure = true in HTTPS environments
+SameSite = Lax for the selected same-site setup
 Path = /auth/refresh
-SameSite = appropriate to deployment
+Secure = true over HTTPS
+Secure = false only for local HTTP development
 ```
 
-Use `SameSite=Lax` when the deployment's same-site architecture permits it.
+For genuinely cross-site cookie usage, `SameSite=None` requires HTTPS, `Secure=true`, and appropriate CSRF protection.
 
-For genuinely cross-site cookie usage, `SameSite=None` requires `Secure` and appropriate CSRF protection.
+API clients such as Postman may test refresh by retaining the cookie set at login in a cookie jar. JSON-body refresh tokens are not part of the selected contract.
 
 ### 6.3 CSRF Protection
 
