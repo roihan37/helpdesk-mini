@@ -801,3 +801,100 @@ The pre-existing M0/M1 execution-plan moves were not modified as part of M2.
   that provide `Origin` are checked against the configured explicit allowlist.
 - The focused tests establish preliminary behavior but do not replace the Phase 3 PostgreSQL and
   tenant-isolation integration suite.
+
+## 15. Phase 3 Integration and Security Verification Record
+
+Recorded on 2026-10-09. Phase status: **READY FOR PHASE 4 REVIEW**. This plan remains active and
+M2 is not marked complete pending reviewer approval.
+
+### Coverage added
+
+- Added `backend/tests/test_m2_integration.py` with 25 PostgreSQL-backed integration tests.
+- Verified atomic Business/Admin registration, Argon2 storage, forced Admin membership, duplicate
+  slug/email conflicts, and rollback without an orphan Business.
+- Verified login credential handling, typed access/refresh claims, expiry and signature rejection,
+  cookie issuance, database-backed identity resolution, and deleted-user rejection.
+- Verified `/auth/me`, Admin-only user listing/creation, Business A/B list isolation, tenant
+  derivation, role restrictions, stale/forged JWT authorization claims, and strict request bodies.
+- Verified response envelopes and status codes across 200, 201, 401, 403, 409, and 422 paths.
+- Verified explicit credentialed CORS, allowed/disallowed refresh origins, and refresh-cookie
+  `HttpOnly`, `Path`, `SameSite`, and environment-controlled `Secure` attributes using TestClient.
+- Verified PostgreSQL unique constraints, foreign keys, nullable ticket assignment, required
+  indexes, and ORM relationships through the complete M1/M2 regression suite.
+
+### Defects and corrections
+
+- No product-code defect was found. Initial failures in the new tests came from invalid test-only
+  `.test` email addresses, invalid space-containing slug fixtures, and fixture savepoints that had
+  not been committed before issuing HTTP requests. The fixtures were corrected without weakening
+  application checks or assertions.
+- The first OpenAPI secret-exposure assertion was invoked from the repository root and failed with
+  `ModuleNotFoundError: app`; rerunning it from `backend/` passed. This was a command working-
+  directory error, not an application defect.
+- A migration verification command attempted to set Alembic's URL through `Config`, but
+  `alembic/env.py` reloads `DATABASE_URL` from application settings. Consequently, that first
+  downgrade/re-upgrade ran against the database configured in the ignored local `.env` instead of
+  `helpdesk_m2_test`. It completed and restored revision `a3930ac451be`, but downgrade recreates
+  the schema and would have removed any prior rows. A read-only follow-up observed all four
+  application tables present and empty; the pre-command row state cannot be reconstructed. The
+  verification was then repeated with the process `DATABASE_URL` explicitly set to the guarded
+  disposable `_test` database and passed. Future destructive Alembic checks must set and validate
+  the process environment, not only mutate an Alembic `Config` object.
+
+### Actual validation results
+
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m compileall -q app alembic tests`.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff check app alembic tests`.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff format --check app alembic tests`:
+  36 files already formatted.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run mypy app tests`: 34 source files, no
+  issues.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "from app.main import app; ..."`
+  from `backend/`: all six M2 routes exist and protected routes declare Bearer security.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run alembic heads`:
+  `a3930ac451be (head)`.
+- PASS — integration-only pytest invocation with `DATABASE_URL` and `TEST_DATABASE_URL` derived
+  from local settings but forced to database `helpdesk_m2_test`: 25 passed, 1 external
+  `StarletteDeprecationWarning`.
+- PASS — full pytest invocation with `DATABASE_URL`, `TEST_DATABASE_URL`, and
+  `M1_TEST_DATABASE_URL` forced to `helpdesk_m2_test`: 65 passed, 0 failed, 1 external
+  `StarletteDeprecationWarning` in 2.54 seconds.
+- PASS — Alembic `current`, `check`, `downgrade base`, `upgrade head`, and final `check`, with the
+  process `DATABASE_URL` forced to `helpdesk_m2_test`. Inspection also confirmed the four required
+  tables, unique `businesses.slug`, globally unique `users.email`, and ticket index
+  `(business_id, status)`.
+- PASS — `git diff --check`.
+- PASS — `git check-ignore -q backend/.env`; the local environment file remains ignored.
+- PASS — changed-file scan found no non-placeholder private-key marker, credentialed PostgreSQL
+  URL, or literal JWT secret assignment.
+- PASS — OpenAPI serialization contains no `password_hash` field.
+- NOT RUN — real-browser cookie persistence and browser-enforced SameSite/Secure behavior. The
+  TestClient verifies emitted headers and CORS behavior only.
+
+The focused integration rerun used this exact command from `backend/` (the URL is derived without
+printing credentials):
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m2_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short','tests/test_m2_integration.py']))"
+```
+
+The full regression command was identical except that it also assigned
+`os.environ['M1_TEST_DATABASE_URL']=test_url` and invoked
+`pytest.main(['-q','--tb=short'])`. The disposable migration lifecycle command likewise derived the
+same `_test` URL, assigned it to `os.environ['DATABASE_URL']`, cleared the settings cache, and then
+called Alembic `current`, `check`, `downgrade('base')`, `upgrade('head')`, and final `check` through
+the Alembic Python API. This ordering is required because `alembic/env.py` reads application
+settings.
+
+### Remaining risks and Phase 4 review tasks
+
+- A reviewer should acknowledge the local-database migration incident above and confirm that the
+  observed empty database did not contain expected development data. There is no automated backup
+  from which this verification can determine the prior contents.
+- Refresh tokens remain stateless and non-rotating; login rate limiting remains out of M2 scope.
+- Real-browser cookie behavior still needs manual verification under the intended HTTP/HTTPS
+  deployment topology.
+- The TestClient dependency emits one upstream Starlette/httpx deprecation warning. No dependency
+  was added solely to suppress it.
+- Phase 4 should review the evidence and decide whether to approve M2. Do not move this plan to
+  `completed/`, start M3, commit, or push automatically.
