@@ -85,23 +85,64 @@ Do not implement business registration, JWT authentication, user management, dat
 
 ## Acceptance Criteria
 
-- [ ] Frontend starts successfully.
-- [ ] Backend starts successfully.
-- [ ] PostgreSQL configuration is valid.
-- [ ] Alembic is configured correctly.
-- [ ] Environment configuration is documented.
-- [ ] No real secrets are exposed.
-- [ ] Basic validation commands succeed.
-- [ ] README contains verified setup instructions.
+- [x] Frontend starts successfully.
+- [x] Backend starts successfully.
+- [x] PostgreSQL configuration is valid.
+- [x] Alembic is configured correctly.
+- [x] Environment configuration is documented.
+- [x] No real secrets are exposed.
+- [x] Basic validation commands succeed.
+- [x] README contains verified setup instructions.
 
 ## Validation Record
 
-Record each executed command, date, result, and relevant failure detail here during M0. Do not mark a check successful without executing it.
+Executed on 2026-10-09.
+
+### Dependency and configuration checks
+
+- `cd backend && uv sync --all-groups` - PASS; Python 3.12.12 environment and lockfile created.
+- `cd frontend && npm install` - PASS; package lock is current.
+- Backend settings checks with valid values, missing required values, and comma-separated `CORS_ORIGINS` - PASS. Missing values fail validation, and comma-separated origins produce the expected URL list.
+- `git check-ignore backend/.env frontend/.env.local` - PASS; both local configuration files are ignored.
+- Repository scan excluding ignored local environment files and generated dependency/build directories - PASS; no real private key or local JWT secret was found in project files.
+
+### Frontend checks
+
+- `cd frontend && npm run lint` - PASS.
+- `cd frontend && npm run typecheck` - PASS.
+- `cd frontend && npm run build` - PASS; Next.js 16.4.0 produced a static `/` route using webpack.
+- `cd frontend && npm run dev -- --hostname 127.0.0.1 --port 3000` - PASS; started while the backend was running.
+- `curl --fail --silent --show-error --output /private/tmp/helpdesk-mini-frontend-smoke.html --write-out 'frontend_status=%{http_code}\n' http://127.0.0.1:3000/` - PASS; returned HTTP 200.
+- `cd frontend && npm audit --omit=dev` - PASS; zero runtime vulnerabilities reported.
+- `cd frontend && npm audit` - FAIL; five high-severity findings are one transitive `braces` advisory in the Next.js ESLint development-tooling chain. The suggested forced fix would install the incompatible `eslint-config-next@14.2.35`, so it was not applied.
+
+The first default `next build` attempt used Turbopack and failed when its internal worker could not bind a port in the execution environment. The checked-in build command uses Next.js's supported webpack builder; the final production build passed.
+
+### Backend checks
+
+- `cd backend && uv run python -m compileall -q app alembic` - PASS.
+- `cd backend && uv run ruff check app alembic` - PASS.
+- `cd backend && uv run mypy app` - PASS; eight source files checked.
+- `cd backend && uv run python -c 'from app.main import app; assert app.title == "HelpDesk Mini API"'` - PASS.
+- `cd backend && DATABASE_URL=postgresql+psycopg://helpdesk:helpdesk@127.0.0.1:55432/helpdesk_mini uv run python -m app.db.check` - PASS against a disposable PostgreSQL 17 instance; the connection was opened and closed without exposing credentials.
+- `cd backend && DATABASE_URL=postgresql+psycopg://helpdesk:helpdesk@127.0.0.1:55432/helpdesk_mini uv run alembic current` - PASS; PostgreSQL configuration loaded and connected.
+- `cd backend && DATABASE_URL=postgresql+psycopg://helpdesk:helpdesk@127.0.0.1:55432/helpdesk_mini uv run alembic heads` - PASS with no output, as expected before the M1 domain migration.
+- `cd backend && DATABASE_URL=postgresql+psycopg://helpdesk:helpdesk@127.0.0.1:55432/helpdesk_mini uv run uvicorn app.main:app --host 127.0.0.1 --port 8000` - PASS; started while the frontend was running.
+- `curl --fail --silent --show-error --include --header 'Origin: http://localhost:3000' http://127.0.0.1:8000/health` - PASS; returned HTTP 200, `{"status":"ok"}`, the configured origin, and credential support.
+
+The machine's existing service on PostgreSQL's default port did not accept the documented local development credentials. M0 database behavior was therefore verified against an isolated PostgreSQL 17 container on port 55432. Developers must provision the role and database named by their own `backend/.env`.
+
+### Known limitations
+
+- M0 intentionally contains no authentication, domain models, tickets, messages, WebSocket endpoint, or product pages.
+- There is no Alembic revision until the M1 schema is implemented.
+- The full npm audit retains the development-only transitive advisory described above; the runtime dependency audit is clean.
+- M0 remains in `exec-plans/active/` pending review. No M1 work has started.
 
 ## Definition of Done
 
-- [ ] All acceptance criteria are checked with evidence.
-- [ ] Relevant validation results are recorded.
-- [ ] Known limitations are documented.
-- [ ] No critical security issue is introduced.
+- [x] All acceptance criteria are checked with evidence.
+- [x] Relevant validation results are recorded.
+- [x] Known limitations are documented.
+- [x] No critical security issue is introduced.
 - [ ] M0 is reviewed before moving this plan to `exec-plans/completed/` or beginning M1.

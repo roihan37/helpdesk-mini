@@ -1,0 +1,1 @@
+"""HelpDesk Mini backend application."""

@@ -1,41 +1,92 @@
 # HelpDesk Mini
 
-HelpDesk Mini is a planned multi-tenant support-ticket application where Customers create tickets and communicate with business staff through persistent, real-time chat. It is being built for the SVO Connect Junior Developer technical assessment.
+HelpDesk Mini is a multi-tenant support-ticket application being built for the SVO Connect Junior Developer technical assessment.
 
 ## Implementation Status
 
-**Harness stabilization only.** Requirements and architecture are documented, but the frontend and backend have not yet been scaffolded or verified as runnable. Follow the active [M0 foundation plan](exec-plans/active/M0-foundation.md) for the next implementation milestone.
+M0 provides a verified project foundation: a minimal Next.js frontend, a FastAPI health endpoint, typed environment settings, PostgreSQL connectivity, and Alembic configuration. Authentication, domain models, ticket management, and WebSocket behavior are intentionally not implemented yet.
 
-## Technology Stack
+See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
-- Frontend: Next.js App Router, TypeScript, Tailwind CSS, and TanStack Query.
-- Backend: Python 3.11+, FastAPI, Pydantic, SQLAlchemy, and Alembic.
-- Data and real time: PostgreSQL and native FastAPI WebSocket.
-- Security: JWT access/refresh tokens and Argon2 password hashing.
+## Prerequisites
 
-## Planned Repository Structure
+The M0 checks were run with:
 
-```text
-helpdesk-mini/
-├── frontend/              # Next.js application (planned in M0)
-├── backend/               # FastAPI application (planned in M0)
-├── docs/                  # Requirements, API, and security contracts
-└── exec-plans/            # Active and completed milestone plans
-```
+- Node.js 24.18.0 and npm 11.16.0.
+- Python 3.12.12 managed by `uv`.
+- PostgreSQL 17 for the connectivity and Alembic smoke checks.
 
-## Architecture and Security
-
-The system is a modular monolith: the Next.js client communicates with one FastAPI backend, which is the authority for authentication, RBAC, tenant isolation, ticket rules, and WebSocket authorization. PostgreSQL is the source of truth. Every protected resource is scoped to the authenticated user's business; Customers are additionally restricted to their own tickets. Cross-business ticket access returns 404, refresh tokens cannot authorize ordinary endpoints, and closed tickets cannot receive messages.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md).
-
-## Development Prerequisites
-
-M0 will establish and verify exact versions and setup commands. The planned prerequisites are Node.js with a compatible package manager, Python 3.11 or later, and PostgreSQL. No runnable setup is claimed yet.
+Python 3.11 or later is supported. A PostgreSQL database and role matching `DATABASE_URL` must exist before running the database checks.
 
 ## Environment Configuration
 
-Root [`.env.example`](.env.example) documents all planned variables without real secrets. During M0, backend values will be copied to `backend/.env` and frontend values to `frontend/.env.local`; both local files are ignored by Git. Access tokens expire after 15 minutes and refresh tokens after 7 days by default.
+Use the backend section of [`.env.example`](.env.example) to create an ignored `backend/.env`, and the frontend section to create an ignored `frontend/.env.local`. Replace `JWT_SECRET` with a strong local value; the application has no fallback secret.
+
+`CORS_ORIGINS` is a comma-separated list of explicit origins, for example:
+
+```dotenv
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
+
+Wildcard origins are not supported because the browser authentication design uses credentials. The documented JWT strategy remains: access tokens live only in frontend memory, while refresh tokens use an HttpOnly cookie with `SameSite=Lax`, `Path=/auth/refresh`, and `Secure` enabled under HTTPS. M0 defines only the configuration contract; it does not issue or validate tokens.
+
+## Backend Setup
+
+Run from `backend/`:
+
+```bash
+uv sync --all-groups
+uv run python -m app.db.check
+uv run alembic current
+uv run alembic heads
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+The intentionally public health endpoint is available at `http://127.0.0.1:8000/health` and returns only `{"status":"ok"}`.
+
+Backend validation commands:
+
+```bash
+uv run python -m compileall -q app alembic
+uv run ruff check app alembic
+uv run mypy app
+```
+
+## Frontend Setup
+
+Run from `frontend/`:
+
+```bash
+npm install
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+The foundation page is available at `http://127.0.0.1:3000/`.
+
+Frontend validation commands:
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
+
+The production build intentionally uses Next.js's webpack builder. In the M0 execution environment, the default Turbopack production worker could not bind its internal port; the webpack build completed successfully.
+
+## Technical Decisions
+
+- The application remains a modular monolith with a Next.js client, one FastAPI backend, and PostgreSQL as the source of truth.
+- Backend settings are required and typed. PostgreSQL URLs are validated, and SQLite is not used as a fallback.
+- Credentialed CORS accepts only explicitly configured development origins.
+- Alembic is connected to the shared SQLAlchemy metadata, but M0 deliberately contains no domain models or migration revisions.
+- Mandatory security and functional flows take priority over optional infrastructure and UI polish.
+
+## Known Limitations
+
+- Authentication, RBAC, tenant isolation enforcement, ticket workflows, WebSocket chat, and product pages belong to later milestones.
+- The Alembic heads list is empty because M0 does not create a domain migration.
+- `npm audit --omit=dev` reports no runtime vulnerabilities. The full audit reports a high-severity `braces` advisory through the Next.js ESLint development-tooling chain; npm's proposed automatic fix is a breaking downgrade of `eslint-config-next`, so it was not applied.
+- Database startup requires a locally provisioned PostgreSQL role and database matching `backend/.env`.
 
 ## Milestone Roadmap
 
@@ -49,24 +100,3 @@ Root [`.env.example`](.env.example) documents all planned variables without real
 | M5 | WebSocket chat |
 | M6 | Required frontend flows |
 | M7 | Final tests, seed data, documentation, and demo preparation |
-
-## Planned Demo Requirements
-
-The final demo must show Customer and Agent chat updating in two browsers, an Agent updating ticket status, and a Business A user being denied access to a Business B ticket.
-
-## Technical Decisions and Trade-offs
-
-- A modular monolith keeps the assessment implementation explainable and maintainable.
-- Shared-schema tenancy is simple, but every protected query must enforce `business_id` and applicable ownership checks.
-- Refresh tokens use an HttpOnly cookie for browser refresh; access tokens remain in memory.
-- The MVP uses a single-process in-memory WebSocket manager, avoiding premature broker infrastructure.
-- Mandatory security and functional flows take priority over optional bonuses and UI polish.
-
-## Known Limitations
-
-- Application scaffolding and verified setup commands do not exist yet.
-- Stateless refresh tokens do not support immediate server-side revocation or rotation.
-- In-memory WebSocket broadcasting does not span multiple backend processes.
-- Deployment, rate limiting, and other bonus features are outside the current scope.
-
-This README will be expanded with verified setup steps, seed/demo accounts, a **Catatan** section, and final limitations as milestones progress.
