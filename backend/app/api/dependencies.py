@@ -1,5 +1,6 @@
 """Reusable authentication and authorization dependencies."""
 
+from collections.abc import Collection
 from typing import Annotated
 
 from fastapi import Depends
@@ -66,10 +67,24 @@ def require_admin(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
     """Require the authenticated user to have the admin role."""
-    if current_user.role != UserRole.ADMIN:
+    return require_roles(
+        current_user,
+        {UserRole.ADMIN},
+        forbidden_message="Administrator access is required.",
+    )
+
+
+def require_roles(
+    current_user: User,
+    allowed_roles: Collection[UserRole],
+    *,
+    forbidden_message: str = "You are not allowed to perform this action.",
+) -> User:
+    """Return the trusted current user when their database role is permitted."""
+    if current_user.role not in allowed_roles:
         raise AppError(
             status_code=403,
             code="FORBIDDEN",
-            message="Administrator access is required.",
+            message=forbidden_message,
         )
     return current_user
