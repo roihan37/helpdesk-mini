@@ -704,7 +704,7 @@ Two setup/configuration failures were resolved and retained here for accuracy:
   tests refused to run because they require `M1_TEST_DATABASE_URL`. Re-running with both variables
   pointing to the same guarded `_test` database passed all 112 selected tests.
 
-### Remaining Phase 3 work and limitations
+### Phase 2 handoff items and limitations
 
 - Phase 3 must perform the comprehensive security/concurrency matrix from Section 15, including
   expired/deleted-user handshakes, malformed frames, forced commit failures, reconnect recovery,
@@ -717,3 +717,85 @@ Two setup/configuration failures were resolved and retained here for accuracy:
   lose the stored Message, but clients may need history reload to observe it.
 - Access tokens remain in the approved WebSocket query parameter shape and can be exposed by
   upstream URL logging; production must use WSS and redact complete WebSocket URLs.
+
+## 21. Phase 3 Validation Record
+
+Validation date: 2026-10-10
+
+Phase status: **PHASE 3 VERIFIED, PENDING PHASE 4 REVIEW**. M5 remains in `active/`; it has not been
+marked complete, and no M6 work, commit, or push was performed.
+
+### Coverage added
+
+- Verified deterministic history ordering for equal timestamps, Admin read-only history access,
+  and preserved history for closed Tickets.
+- Verified expired-token and deleted-User handshake rejection in addition to the existing missing,
+  invalid, refresh-token, tenant, and Customer-ownership cases.
+- Verified current database role enforcement on every send, malformed/unsupported event recovery,
+  sanitized internal errors, and absence of false broadcasts after a rolled-back database write.
+- Verified two authorized live clients exchange persisted messages, reconnect/history consistency,
+  same-business and cross-business Ticket-room isolation, and disconnect membership cleanup.
+- Verified concurrent Message writes remain consistent in PostgreSQL and that Ticket row locking
+  prevents a Message from committing after a concurrent close.
+- Verified status broadcasts are not scheduled for no-op, assignment-only, rejected, or failed
+  updates. Existing tests continue to verify exactly one post-commit event for a meaningful status
+  change.
+
+### Actual validation results
+
+- **PASS** — final focused M5 suite: `25 passed, 1 warning in 1.16s`.
+- **PASS** — M2-M4 regression selection: `112 passed, 1 warning in 3.13s`.
+- **PASS** — final complete backend suite: `137 passed, 1 warning in 4.43s`.
+- **PASS** — final syntax/import compilation: `python -m compileall app tests`.
+- **PASS** — final Ruff lint: `All checks passed!`.
+- **PASS** — final Ruff format check: `51 files already formatted`.
+- **PASS** — final strict mypy: `Success: no issues found in 49 source files`.
+- **PASS** — Alembic reports one head: `a3930ac451be (head)`.
+- **PASS** — guarded `alembic check` on disposable `helpdesk_m5_test`:
+  `No new upgrade operations detected.`
+- **PASS** — `git diff --check`.
+- **PASS** — Phase 3 diff scan found no likely credential/private-key material.
+- **NOT RUN: 0** — every Phase 3 verification category in the approved plan was exercised by the
+  focused, regression, full-suite, or static/database checks.
+- **WARNING** — pytest still reports the existing Starlette TestClient/httpx deprecation warning;
+  it does not fail the suite and no dependency change was introduced.
+
+The pytest command counts overlap: the 25 focused and 112 regression cases are included in the
+137-test full suite and must not be summed as distinct tests.
+
+### Failures investigated
+
+- The first expanded focused run reported `24 passed, 1 failed`. The failure was in the new test,
+  which inspected a nonexistent private Starlette queue attribute. It was corrected to use the
+  installed transport's public stream statistics; the application behavior was not changed, and
+  all subsequent focused and full runs passed.
+- An initial non-escalated database-backed command was blocked because the sandbox denied local
+  PostgreSQL/cache access. It was rerun through the permitted execution path against the guarded
+  disposable `_test` database and passed. No valuable database was reset or downgraded.
+
+### Defects and changes
+
+- No production M5 defect was confirmed, so no application source, dependency, migration, API
+  contract, or runtime configuration was changed in Phase 3.
+- Added only the essential M5 regression and integration cases to
+  `backend/tests/test_websocket_chat.py`, plus this evidence record.
+
+### Security and correctness conclusion
+
+- Handshake authentication, current-User resolution, tenant isolation, Customer ownership,
+  Admin read-only policy, Agent/Customer writes, closed-Ticket enforcement, room scoping, and
+  sanitized failure handling passed against real FastAPI WebSockets and disposable PostgreSQL.
+- Message persistence precedes broadcast, forced database failure rolls back without broadcasting,
+  history matches committed data, and concurrent close/send behavior preserves the closed-Ticket
+  invariant.
+- Status delivery remains post-commit and limited to meaningful status changes; failure,
+  assignment-only, and no-op paths emit no event.
+
+### Remaining risks
+
+- The documented process-local connection manager still requires exactly one backend worker.
+- Broadcast remains best-effort after commit; a process crash in the commit/broadcast gap can
+  require clients to reload history.
+- An idle revoked/deleted User connection is not continuously revalidated and can receive room
+  events until its next sensitive send or disconnect.
+- Query-string WebSocket access tokens require WSS and upstream URL redaction in production.
