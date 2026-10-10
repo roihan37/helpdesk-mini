@@ -7,12 +7,12 @@ from threading import Barrier
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, create_engine, delete, select
+from sqlalchemy import Engine, create_engine, delete, event, inspect, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.core.security import create_access_token
+from app.core.security import create_access_token, create_refresh_token
 from app.db.session import get_db
 from app.main import app
 from app.models import (
@@ -128,6 +128,11 @@ def bearer(user: User) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def refresh_bearer(user: User) -> dict[str, str]:
+    token = create_refresh_token(user.id, user.business_id, user.role)
+    return {"Authorization": f"Bearer {token}"}
+
+
 def error_signature(response: object) -> tuple[int, str, object]:
     payload = getattr(response, "json")()
     return (
@@ -218,29 +223,30 @@ def test_create_ticket_rejects_staff_and_client_controlled_fields(
     assert error_signature(invalid_priority)[:2] == (422, "VALIDATION_ERROR")
 
 
-def test_create_ticket_rolls_back_ticket_and_message_on_commit_failure(
-    db: Session, monkeypatch: pytest.MonkeyPatch
+def test_create_ticket_rolls_back_ticket_when_message_insert_fails(
+    db: Session,
 ) -> None:
     business = add_business(db)
     customer = add_user(db, business, UserRole.CUSTOMER)
 
-    def fail_after_flush() -> None:
-        db.flush()
-        raise RuntimeError("forced commit failure")
+    def fail_message_insert(*_: object) -> None:
+        raise RuntimeError("forced message insert failure")
 
-    monkeypatch.setattr(db, "commit", fail_after_flush)
-
-    with pytest.raises(RuntimeError, match="forced commit failure"):
-        create_ticket(
-            db,
-            customer,
-            TicketCreateRequest(
-                subject="Atomic creation",
-                category="account",
-                priority=TicketPriority.HIGH,
-                message="Neither row may remain.",
-            ),
-        )
+    event.listen(Message, "before_insert", fail_message_insert)
+    try:
+        with pytest.raises(RuntimeError, match="forced message insert failure"):
+            create_ticket(
+                db,
+                customer,
+                TicketCreateRequest(
+                    subject="Atomic creation",
+                    category="account",
+                    priority=TicketPriority.HIGH,
+                    message="Neither row may remain.",
+                ),
+            )
+    finally:
+        event.remove(Message, "before_insert", fail_message_insert)
 
     assert (
         db.scalars(select(Ticket).where(Ticket.subject == "Atomic creation")).all()
@@ -252,6 +258,130 @@ def test_create_ticket_rolls_back_ticket_and_message_on_commit_failure(
         ).all()
         == []
     )
+    assert db.get(User, customer.id) is not None
+
+
+def test_ticket_endpoints_require_access_tokens(
+    client: TestClient, db: Session
+) -> None:
+    business = add_business(db)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    ticket = add_ticket(db, business, customer)
+    requests = (
+        ("get", "/tickets", None),
+        (
+            "post",
+            "/tickets",
+            {
+                "subject": "Authentication check",
+                "category": "account",
+                "priority": "low",
+                "message": "Help",
+            },
+        ),
+        ("get", f"/tickets/{ticket.id}", None),
+        ("patch", f"/tickets/{ticket.id}", {"status": "open"}),
+    )
+
+    for method, path, payload in requests:
+        call = getattr(client, method)
+        missing = call(path, json=payload) if payload is not None else call(path)
+        invalid = (
+            call(path, headers={"Authorization": "Bearer invalid"}, json=payload)
+            if payload is not None
+            else call(path, headers={"Authorization": "Bearer invalid"})
+        )
+        refresh = (
+            call(path, headers=refresh_bearer(customer), json=payload)
+            if payload is not None
+            else call(path, headers=refresh_bearer(customer))
+        )
+
+        assert error_signature(missing)[:2] == (401, "AUTH_TOKEN_INVALID")
+        assert error_signature(invalid)[:2] == (401, "AUTH_TOKEN_INVALID")
+        assert error_signature(refresh)[:2] == (401, "AUTH_TOKEN_WRONG_TYPE")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("business_id", str(uuid.uuid4())),
+        ("customer_id", str(uuid.uuid4())),
+        ("sender_id", str(uuid.uuid4())),
+        ("assigned_agent_id", str(uuid.uuid4())),
+        ("status", "resolved"),
+    ],
+)
+def test_create_ticket_rejects_every_client_controlled_identity_field(
+    client: TestClient,
+    db: Session,
+    field: str,
+    value: str,
+) -> None:
+    business = add_business(db)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    response = client.post(
+        "/tickets",
+        headers=bearer(customer),
+        json={
+            "subject": "Strict payload",
+            "category": "account",
+            "priority": "low",
+            "message": "Help",
+            field: value,
+        },
+    )
+
+    assert error_signature(response)[:2] == (422, "VALIDATION_ERROR")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"category": "account", "priority": "low", "message": "Help"},
+        {
+            "subject": "   ",
+            "category": "account",
+            "priority": "low",
+            "message": "Help",
+        },
+        {
+            "subject": "Issue",
+            "category": "account",
+            "priority": "low",
+            "message": "   ",
+        },
+        {
+            "subject": "x" * 151,
+            "category": "account",
+            "priority": "low",
+            "message": "Help",
+        },
+        {
+            "subject": "Issue",
+            "category": "x" * 101,
+            "priority": "low",
+            "message": "Help",
+        },
+        {
+            "subject": "Issue",
+            "category": "account",
+            "priority": "low",
+            "message": "x" * 5001,
+        },
+    ],
+)
+def test_create_ticket_rejects_missing_blank_and_oversized_fields(
+    client: TestClient,
+    db: Session,
+    payload: dict[str, str],
+) -> None:
+    business = add_business(db)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+
+    response = client.post("/tickets", headers=bearer(customer), json=payload)
+
+    assert error_signature(response)[:2] == (422, "VALIDATION_ERROR")
 
 
 def test_list_tickets_enforces_tenant_owner_filter_and_order(
@@ -301,6 +431,39 @@ def test_list_tickets_enforces_tenant_owner_filter_and_order(
     assert error_signature(invalid)[:2] == (422, "VALIDATION_ERROR")
 
 
+def test_list_tickets_supports_all_status_filters_and_deterministic_ties(
+    client: TestClient, db: Session
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    same_activity_time = datetime.now(UTC)
+    tickets = [
+        add_ticket(
+            db,
+            business,
+            customer,
+            status=status,
+            subject=status.value,
+            updated_at=same_activity_time,
+        )
+        for status in TicketStatus
+    ]
+
+    response = client.get("/tickets", headers=bearer(admin))
+    assert [item["id"] for item in response.json()["data"]] == [
+        str(ticket.id)
+        for ticket in sorted(tickets, key=lambda item: item.id, reverse=True)
+    ]
+
+    for ticket in tickets:
+        filtered = client.get(
+            f"/tickets?status={ticket.status}",
+            headers=bearer(admin),
+        )
+        assert [item["id"] for item in filtered.json()["data"]] == [str(ticket.id)]
+
+
 def test_detail_hides_foreign_and_other_customer_tickets(
     client: TestClient, db: Session
 ) -> None:
@@ -311,6 +474,8 @@ def test_detail_hides_foreign_and_other_customer_tickets(
     other_customer = add_user(db, business_a, UserRole.CUSTOMER)
     business_b = add_business(db, "Beta")
     admin_b = add_user(db, business_b, UserRole.ADMIN)
+    agent_b = add_user(db, business_b, UserRole.AGENT)
+    customer_b = add_user(db, business_b, UserRole.CUSTOMER)
     ticket = add_ticket(db, business_a, owner)
 
     owner_response = client.get(f"/tickets/{ticket.id}", headers=bearer(owner))
@@ -321,6 +486,8 @@ def test_detail_hides_foreign_and_other_customer_tickets(
     hidden = [
         client.get(f"/tickets/{ticket.id}", headers=bearer(other_customer)),
         client.get(f"/tickets/{ticket.id}", headers=bearer(admin_b)),
+        client.get(f"/tickets/{ticket.id}", headers=bearer(agent_b)),
+        client.get(f"/tickets/{ticket.id}", headers=bearer(customer_b)),
         client.get(f"/tickets/{uuid.uuid4()}", headers=bearer(owner)),
     ]
 
@@ -329,7 +496,36 @@ def test_detail_hides_foreign_and_other_customer_tickets(
     assert owner_response.json()["data"]["customer"]["id"] == str(owner.id)
     assert [error_signature(response) for response in hidden] == [
         (404, "TICKET_NOT_FOUND", None)
-    ] * 3
+    ] * 5
+
+    hidden_updates = [
+        client.patch(
+            f"/tickets/{ticket.id}",
+            headers=bearer(actor),
+            json={"status": "in_progress"},
+        )
+        for actor in (other_customer, admin_b, agent_b, customer_b)
+    ]
+    assert [error_signature(response) for response in hidden_updates] == [
+        (404, "TICKET_NOT_FOUND", None)
+    ] * 4
+
+
+def test_ticket_ids_are_validated_before_lookup(
+    client: TestClient, db: Session
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+
+    detail = client.get("/tickets/not-a-uuid", headers=bearer(admin))
+    update = client.patch(
+        "/tickets/not-a-uuid",
+        headers=bearer(admin),
+        json={"status": "in_progress"},
+    )
+
+    assert error_signature(detail)[:2] == (422, "VALIDATION_ERROR")
+    assert error_signature(update)[:2] == (422, "VALIDATION_ERROR")
 
 
 def test_staff_status_lifecycle_and_customer_reopen(
@@ -337,11 +533,12 @@ def test_staff_status_lifecycle_and_customer_reopen(
 ) -> None:
     business = add_business(db)
     admin = add_user(db, business, UserRole.ADMIN)
+    agent = add_user(db, business, UserRole.AGENT)
     customer = add_user(db, business, UserRole.CUSTOMER)
     ticket = add_ticket(db, business, customer)
 
     for actor, requested in (
-        (admin, TicketStatus.IN_PROGRESS),
+        (agent, TicketStatus.IN_PROGRESS),
         (admin, TicketStatus.RESOLVED),
         (customer, TicketStatus.OPEN),
     ):
@@ -359,6 +556,39 @@ def test_staff_status_lifecycle_and_customer_reopen(
         json={"status": "resolved"},
     )
     assert error_signature(skipped)[:2] == (409, "INVALID_STATUS_TRANSITION")
+
+
+@pytest.mark.parametrize(
+    ("initial", "requested"),
+    [
+        (TicketStatus.OPEN, TicketStatus.RESOLVED),
+        (TicketStatus.OPEN, TicketStatus.CLOSED),
+        (TicketStatus.IN_PROGRESS, TicketStatus.OPEN),
+        (TicketStatus.IN_PROGRESS, TicketStatus.CLOSED),
+        (TicketStatus.RESOLVED, TicketStatus.OPEN),
+        (TicketStatus.RESOLVED, TicketStatus.IN_PROGRESS),
+    ],
+)
+def test_staff_rejects_skipped_backward_and_reopen_transitions(
+    client: TestClient,
+    db: Session,
+    initial: TicketStatus,
+    requested: TicketStatus,
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    ticket = add_ticket(db, business, customer, status=initial)
+
+    response = client.patch(
+        f"/tickets/{ticket.id}",
+        headers=bearer(admin),
+        json={"status": requested.value},
+    )
+
+    assert error_signature(response)[:2] == (409, "INVALID_STATUS_TRANSITION")
+    db.refresh(ticket)
+    assert ticket.status == initial
 
 
 def test_closed_same_status_is_noop_but_closed_is_terminal(
@@ -566,6 +796,58 @@ def test_combined_patch_is_atomic_and_request_shape_is_strict(
     assert ticket.status == TicketStatus.OPEN
     assert error_signature(empty)[:2] == (422, "VALIDATION_ERROR")
     assert error_signature(null_assignment)[:2] == (422, "VALIDATION_ERROR")
+
+
+def test_valid_combined_patch_persists_assignment_and_status(
+    client: TestClient, db: Session
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    agent = add_user(db, business, UserRole.AGENT)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    ticket = add_ticket(db, business, customer)
+    original_updated_at = ticket.updated_at
+
+    response = client.patch(
+        f"/tickets/{ticket.id}",
+        headers=bearer(admin),
+        json={
+            "assigned_agent_id": str(agent.id),
+            "status": "in_progress",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["assigned_agent_id"] == str(agent.id)
+    assert response.json()["data"]["status"] == "in_progress"
+    db.refresh(ticket)
+    assert ticket.assigned_agent_id == agent.id
+    assert ticket.status == TicketStatus.IN_PROGRESS
+    assert ticket.updated_at >= original_updated_at
+
+
+def test_ticket_schema_has_required_foreign_keys_constraints_and_index(
+    ticket_engine: Engine,
+) -> None:
+    inspector = inspect(ticket_engine)
+    foreign_keys = {
+        (tuple(item["constrained_columns"]), item["referred_table"])
+        for item in inspector.get_foreign_keys("tickets")
+    }
+    constraints = {item["name"] for item in inspector.get_check_constraints("tickets")}
+    indexes = {
+        item["name"]: tuple(item["column_names"])
+        for item in inspector.get_indexes("tickets")
+    }
+
+    assert (("business_id",), "businesses") in foreign_keys
+    assert (("customer_id",), "users") in foreign_keys
+    assert (("assigned_agent_id",), "users") in foreign_keys
+    assert constraints >= {
+        "ck_tickets_priority_allowed",
+        "ck_tickets_status_allowed",
+    }
+    assert indexes["ix_tickets_business_id_status"] == ("business_id", "status")
 
 
 def test_customer_status_permissions_and_cross_customer_reopen(

@@ -2,9 +2,8 @@
 
 ## Status
 
-**IMPLEMENTED — pending Phase 3 verification.** M4 Phase 2 implementation and preliminary
-PostgreSQL-backed verification completed on 2026-10-10. The plan remains active; comprehensive
-Phase 3 verification and final milestone review have not been performed.
+**READY FOR PHASE 4 REVIEW — Phase 3 verified on 2026-10-10.** The plan remains active and M4 is
+not marked complete. Final milestone review has not been performed.
 
 ## 1. Objective
 
@@ -589,3 +588,84 @@ FastAPI's TestClient compatibility layer. No dependency was changed during M4.
   follow the same locking discipline.
 - The inherited stateless refresh-token behavior and pending real-browser cookie verification were
   not changed by this milestone.
+
+## 18. Phase 3 Verification Record — 2026-10-10
+
+### Scope and changes
+
+Phase 3 audited the four M4 Ticket operations against the approved plan and expanded
+`backend/tests/test_tickets.py` from 14 to 36 collected cases. No application defect requiring a
+production-code change was found. The added evidence covers:
+
+- missing, invalid, and refresh-token rejection on every Ticket operation;
+- rejection of every client-controlled creation identity/state field;
+- a targeted Message-insert failure proving Ticket/Message rollback and Session recovery;
+- cross-tenant Admin, Agent, and Customer detail/update denial plus same-tenant Customer ownership;
+- malformed Ticket UUID validation;
+- missing, blank, and oversized Ticket creation fields;
+- all four status filters plus deterministic ordering when activity timestamps tie;
+- skipped, backward, and staff-only reopen transition rejection;
+- successful combined assignment/status persistence and database activity timestamp behavior; and
+- live PostgreSQL inspection of required Ticket foreign keys, check constraints, and the
+  `(business_id, status)` index.
+
+Existing tests continue to cover list tenant/owner/filter/order rules, all documented status and
+assignment paths, invalid combined-update atomicity, response secret omission, and a two-session
+simultaneous Agent claim with exactly one winner.
+
+Files changed during Phase 3:
+
+- `backend/tests/test_tickets.py`
+- `exec-plans/active/M4-ticket-management.md`
+
+No runtime source, dependency, migration, frontend, README, or M5 file was changed.
+
+### Executed validation
+
+All database commands used the explicitly guarded disposable PostgreSQL database
+`helpdesk_m4_test`.
+
+- Baseline focused M4 suite before coverage expansion: **PASS — 14 passed, 1 warning**.
+- First expanded focused run: **FAIL — 1 failed, 22 passed, 1 warning**. The new test expected the
+  undocumented code `AUTH_REQUIRED` for missing credentials; established M2 behavior correctly
+  returned `AUTH_TOKEN_INVALID`. The test expectation was corrected without changing application
+  behavior.
+- Corrected initial expanded focused M4 suite: **PASS — 23 passed, 1 warning**.
+- Final focused M4 suite after completing the input, ordering, and transition matrices:
+  **PASS — 36 passed, 1 warning**.
+- M1-M3 regression selection (`test_auth.py`, `test_users.py`, `test_m2_integration.py`,
+  `test_authorization.py`, and `test_models.py`): **PASS — 76 passed, 1 warning**.
+- Initial complete backend suite after the first coverage expansion:
+  **PASS — 99 passed, 1 warning**.
+- Final complete backend suite after completing all Phase 3 cases:
+  **PASS — 112 passed, 1 warning**.
+- `python -m compileall -q app alembic tests`: **PASS**.
+- `ruff check app alembic tests`: **PASS**.
+- `ruff format --check app alembic tests`: **PASS — 42 files already formatted**.
+- `mypy app tests`: **PASS — no issues in 40 source files**.
+- `alembic heads`: **PASS — one head, `a3930ac451be`**.
+- Guarded `alembic check`: **PASS — no new upgrade operations detected**.
+- `git diff --check`: **PASS**.
+
+The one warning is the pre-existing `StarletteDeprecationWarning` emitted through FastAPI's
+TestClient compatibility layer. Phase 3 did not change dependencies.
+
+### Security findings and remaining limitations
+
+- No critical Ticket authorization, tenant-isolation, transaction, concurrency, schema, or secret
+  exposure defect was found in the approved M4 scope.
+- Cross-tenant and cross-Customer single-resource access remains a non-disclosing
+  `TICKET_NOT_FOUND` 404; list scoping and server-derived creation identity were verified through
+  real endpoint/database integration.
+- Refresh tokens cannot authenticate Ticket endpoints, and explicit response schemas expose no
+  password hash or token.
+- Same-business Customer/assignee integrity remains an application-service invariant because the
+  current foreign keys cannot express it fully; regression and endpoint tests cover the service
+  enforcement.
+- Message history, message sending, WebSocket authorization/chat, closed-ticket message rejection,
+  and status broadcasts remain intentionally deferred to M5.
+- Stateless refresh-token behavior and real-browser cookie verification remain inherited
+  limitations outside M4.
+
+**Phase 3 result: READY FOR PHASE 4 REVIEW.** Do not move this plan to `completed/`, begin Phase 4,
+or proceed to M5 without separate approval.
