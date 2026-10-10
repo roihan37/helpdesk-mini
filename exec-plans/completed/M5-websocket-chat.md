@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTED, PENDING PHASE 3 VERIFICATION
+COMPLETE — PHASE 4 REVIEW PASSED
 
 Planning date: 2026-10-10
 
@@ -799,3 +799,128 @@ The pytest command counts overlap: the 25 focused and 112 regression cases are i
 - An idle revoked/deleted User connection is not continuously revalidated and can receive room
   events until its next sensitive send or disconnect.
 - Query-string WebSocket access tokens require WSS and upstream URL redaction in production.
+
+## 22. Phase 4 Final Review and Milestone Completion
+
+Review date: 2026-10-10
+
+Milestone status: **COMPLETE**. All 16 mandatory acceptance criteria in Section 16 were verified
+against the implementation and executable tests. No M6 or M7 implementation was performed.
+
+### Review scope and repository evidence
+
+- Reviewed the M5 implementation commit `5aa3c43` and Phase 3 integration/security test commit
+  `82abe46`, plus the current source, supporting requirements, security, API, and architecture
+  documentation.
+- The worktree was clean when Phase 4 began. This review changed only this execution record and
+  the README milestone/integration documentation; no application source or test behavior changed.
+- Tests used only the guarded disposable PostgreSQL database `helpdesk_m5_test`. It was upgraded
+  to Alembic head; no downgrade, reset, or destructive action was performed on valuable data.
+
+### Acceptance criteria result
+
+1. **PASS** — authorized history is tenant/owner scoped and deterministically ordered.
+2. **PASS** — WebSocket authentication accepts only access tokens and resolves the current User.
+3. **PASS** — missing, malformed, expired, refresh, and deleted-User credentials are rejected
+   before acceptance.
+4. **PASS** — cross-business and cross-Customer HTTP/WebSocket access is non-disclosing and
+   rejected.
+5. **PASS** — Agent and owning Customer can write; Admin is read-only.
+6. **PASS** — sender identity is server-derived and cannot be spoofed.
+7. **PASS** — Message persistence and Ticket activity updates commit atomically in PostgreSQL.
+8. **PASS** — committed messages reach authorized clients in only the matching Ticket room.
+9. **PASS** — disconnect/reconnect history is consistent with committed database state.
+10. **PASS** — meaningful committed status changes broadcast exactly once; failed, no-op, and
+    assignment-only updates do not broadcast status events.
+11. **PASS** — closed Tickets preserve history and reject writes, including already-connected
+    clients.
+12. **PASS** — disconnect and failed-peer cleanup remove stale room membership.
+13. **PASS** — malformed input and internal failures return sanitized errors without false
+    persistence or broadcast.
+14. **PASS** — focused M5, M2-M4 regressions, full suite, static analysis, and migration checks pass.
+15. **PASS** — the required single-worker deployment constraint is documented and reflected in
+    the verified backend command.
+16. **PASS** — no unresolved critical M5 security or correctness defect was found.
+
+Acceptance totals: **16 PASS / 0 FAIL / 0 NOT RUN**.
+
+### Exact Phase 4 validation commands and results
+
+The three pytest commands used the following guarded command shape, executed from `backend/` with
+each exact argument list shown below. It derived `helpdesk_m5_test` from typed settings, asserted
+PostgreSQL and a database name ending in `_test`, assigned the result to all three test URL
+settings, cleared the settings cache, and invoked `pytest.main(...)` without printing credentials:
+
+```text
+pytest -q --tb=short tests/test_messages.py tests/test_websocket_manager.py tests/test_websocket_chat.py
+PASS: 25 passed, 1 warning in 0.82s
+
+pytest -q --tb=short tests/test_auth.py tests/test_users.py tests/test_m2_integration.py tests/test_authorization.py tests/test_models.py tests/test_tickets.py
+PASS: 112 passed, 1 warning in 3.77s
+
+pytest -q --tb=short
+PASS: 137 passed, 1 warning in 3.49s
+```
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; u=make_url(get_settings().database_url).set(database='helpdesk_m5_test'); assert u.get_backend_name() == 'postgresql' and (u.database or '').endswith('_test'); v=u.render_as_string(hide_password=False); os.environ['DATABASE_URL']=v; os.environ['TEST_DATABASE_URL']=v; os.environ['M1_TEST_DATABASE_URL']=v; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short','tests/test_messages.py','tests/test_websocket_manager.py','tests/test_websocket_chat.py']))"
+
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; u=make_url(get_settings().database_url).set(database='helpdesk_m5_test'); assert u.get_backend_name() == 'postgresql' and (u.database or '').endswith('_test'); v=u.render_as_string(hide_password=False); os.environ['DATABASE_URL']=v; os.environ['TEST_DATABASE_URL']=v; os.environ['M1_TEST_DATABASE_URL']=v; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short','tests/test_auth.py','tests/test_users.py','tests/test_m2_integration.py','tests/test_authorization.py','tests/test_models.py','tests/test_tickets.py']))"
+
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; u=make_url(get_settings().database_url).set(database='helpdesk_m5_test'); assert u.get_backend_name() == 'postgresql' and (u.database or '').endswith('_test'); v=u.render_as_string(hide_password=False); os.environ['DATABASE_URL']=v; os.environ['TEST_DATABASE_URL']=v; os.environ['M1_TEST_DATABASE_URL']=v; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
+```
+
+The exact non-pytest commands and results were:
+
+```text
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m compileall -q app alembic tests
+PASS (exit 0)
+
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff check app alembic tests
+PASS: All checks passed!
+
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff format --check app alembic tests
+PASS: 51 files already formatted
+
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run mypy app tests
+PASS: Success: no issues found in 49 source files
+
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run alembic heads
+PASS: a3930ac451be (head)
+
+Guarded command.upgrade(Config('alembic.ini'), 'head') on helpdesk_m5_test
+PASS: disposable database migrated to head
+
+Guarded command.check(Config('alembic.ini')) on helpdesk_m5_test
+PASS: No new upgrade operations detected.
+```
+
+The focused and regression tests are subsets of the 137-test full suite and are not additive.
+Test totals for the final full run are **137 PASS / 0 FAIL / 0 NOT RUN**. The sole warning is the
+existing upstream Starlette TestClient/httpx deprecation warning; it does not affect behavior and
+no dependency change was justified for M5.
+
+### Defects, security conclusion, and limitations
+
+- No confirmed M5-scoped production defect was found in Phase 4, so no source fix or additional
+  regression test was necessary.
+- Authentication occurs before WebSocket acceptance; database-backed tenant, Customer ownership,
+  and current-role checks protect both handshake and message processing. Database commit precedes
+  message/status broadcast, and the tests found no room leakage or post-close committed Message.
+- The connection manager remains process-local. Production must use exactly one backend worker;
+  multi-process fan-out requires later infrastructure outside M5.
+- Post-commit broadcasts are best-effort. A process failure in the commit/broadcast gap requires
+  clients to recover from message history.
+- Idle sockets are not continuously reauthenticated, and query-string tokens require WSS plus
+  upstream URL redaction in production.
+
+### M6 frontend integration requirements
+
+- Load authorized REST message history before opening the Ticket WebSocket, then reconcile live
+  `message.created` events by Message ID to avoid duplicates.
+- Open only one Ticket socket per mounted detail view, use the in-memory access token, support the
+  configured exact Origin, and close/reconnect cleanly during navigation or authentication expiry.
+- Render Message bodies as text, trust server-provided sender metadata, and handle
+  `message.created`, `ticket.status_changed`, and sanitized `error` events.
+- Disable message input for Admin and closed Tickets in the UI while retaining backend enforcement;
+  reload history after reconnect to recover from best-effort delivery gaps.
