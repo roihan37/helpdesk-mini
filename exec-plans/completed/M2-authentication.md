@@ -2,9 +2,8 @@
 
 ## Status
 
-Phase 2 implementation completed on 2026-10-09. **Implemented, pending Phase 3 comprehensive
-verification and reviewer approval.** Preliminary static and focused tests pass. This plan remains
-active; M2 is not yet complete.
+**COMPLETE — 2026-10-10.** Phase 2 implementation, Phase 3 PostgreSQL/security verification, and
+Phase 4 final review are complete. M2 acceptance criteria pass; M3 has not been started.
 
 ## 1. Objective
 
@@ -898,3 +897,88 @@ settings.
   was added solely to suppress it.
 - Phase 4 should review the evidence and decide whether to approve M2. Do not move this plan to
   `completed/`, start M3, commit, or push automatically.
+
+## 16. Phase 4 Final Review and Milestone Completion
+
+Recorded on 2026-10-10. Phase status: **PASS**. M2 is approved as complete and this execution plan
+is moved to `exec-plans/completed/`. No M3 implementation, commit, or push was performed.
+
+### Phase review
+
+- Phase 1 — PASS: scope, contract, risks, acceptance criteria, and verification strategy were
+  defined before implementation.
+- Phase 2 — PASS: all six M2 endpoints, security primitives, database-backed identity resolution,
+  Admin authorization, and own-business user management were implemented without schema drift.
+- Phase 3 — PASS: 25 focused PostgreSQL integration/security tests and the complete 65-test backend
+  regression suite passed against the guarded disposable `helpdesk_m2_test` database.
+- Phase 4 — PASS: source, tests, execution evidence, repository status, and relevant M2 commits
+  (`09700c2` and `64dd9cf`) were reviewed. README setup, limitations, and milestone status were
+  reconciled with commands actually verified.
+
+### Endpoint and security acceptance
+
+| Requirement | Result |
+|---|---|
+| `POST /auth/register-business` atomically creates a Business and hashed-password Admin | PASS |
+| `POST /auth/login` returns typed tokens and sets the refresh cookie | PASS |
+| `POST /auth/refresh` accepts only the refresh cookie and validates token type and current user | PASS |
+| `GET /auth/me` requires an access token and returns a safe user schema | PASS |
+| `GET /users` is Admin-only and explicitly filtered by the current Admin's business | PASS |
+| `POST /users` is Admin-only, derives `business_id` server-side, and permits Agent/Customer only | PASS |
+| Argon2 hashes and `password_hash` remain absent from API responses and OpenAPI | PASS |
+| JWT signature, expiry, required claims, configured algorithm, and access/refresh separation | PASS |
+| Refresh cookie is HttpOnly, SameSite Lax, path-scoped, and environment-controlled Secure | PASS |
+| Credentialed CORS and browser refresh Origin validation use explicit configured origins | PASS |
+| Duplicate slug/email conflicts, rollback behavior, RBAC, and tenant isolation | PASS |
+
+JWT role and tenant claims are not used as authorization truth. Protected operations resolve the
+current User from PostgreSQL and use that record's role and `business_id`.
+
+### Final validation commands and results
+
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m compileall -q app alembic tests`.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff check app alembic tests`.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff format --check app alembic tests`:
+  36 files already formatted.
+- PASS — `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run mypy app tests`: no issues in 34 source
+  files.
+- PASS — full pytest invocation with `DATABASE_URL`, `TEST_DATABASE_URL`, and
+  `M1_TEST_DATABASE_URL` derived from local settings but forced to `helpdesk_m2_test`: 65 passed,
+  0 failed, and 1 external `StarletteDeprecationWarning` in 2.43 seconds.
+- PASS — guarded read-only Alembic/schema command against `helpdesk_m2_test`: revision
+  `a3930ac451be (head)`, no pending upgrade operations, all four required tables, named unique
+  constraints, Message foreign keys, `(business_id, status)` Ticket index, and nullable assignment
+  verified.
+- PASS — OpenAPI assertion: all six M2 operations exist, protected operations declare Bearer
+  security, and `password_hash` is absent.
+- PASS — `git diff --check` before documentation closure.
+- NOT RUN — manual real-browser refresh-cookie persistence and browser-enforced SameSite/Secure
+  behavior. TestClient coverage verifies the emitted cookie headers, Origin checks, and CORS.
+
+The final full-suite command, run from `backend/`, derived the test URL without printing
+credentials:
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m2_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
+```
+
+### Remaining limitations and risks
+
+- Refresh tokens are stateless, non-rotating, and not immediately revocable. Login rate limiting
+  remains out of M2 scope.
+- Real-browser cookie behavior remains a manual deployment check; this does not invalidate the
+  server-side M2 security tests.
+- FastAPI's TestClient dependency emits one upstream Starlette/httpx deprecation warning.
+- During Phase 3, an incorrectly targeted Alembic lifecycle restored the configured local
+  development database to head but may have erased pre-existing rows. The follow-up found all four
+  application tables empty, and no backup exists to establish their earlier contents. This is an
+  execution-environment incident, not an unresolved M2 product-code failure. Future destructive
+  migration tests must set and validate the process `DATABASE_URL` for an `_test` database first.
+- Ticket-level authorization, ticket workflows, WebSocket behavior, and frontend authentication
+  remain later-milestone work and were not implemented during M2.
+
+### Completion decision
+
+All security-critical M2 acceptance criteria have passing executable evidence and no known
+critical product defect remains. M2 is **COMPLETE**. Work stops here pending review; M3 is only the
+recommended next milestone and has not been started.

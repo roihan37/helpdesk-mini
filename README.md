@@ -4,7 +4,7 @@ HelpDesk Mini is a multi-tenant support-ticket application being built for the S
 
 ## Implementation Status
 
-M0 provides the project foundation and M1 provides the PostgreSQL domain models and initial Alembic migration. M2 authentication and tenant-scoped Admin user management are implemented and awaiting comprehensive PostgreSQL/security verification. Ticket APIs, WebSocket chat, and the product frontend are not implemented yet.
+M0 provides the project foundation, M1 provides the PostgreSQL domain models and initial Alembic migration, and M2 provides verified JWT authentication plus tenant-scoped Admin user management. Ticket APIs, WebSocket chat, and the product frontend are not implemented yet.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
@@ -62,7 +62,16 @@ uv run python -m compileall -q app alembic tests
 uv run ruff check app alembic tests
 uv run ruff format --check app alembic tests
 uv run mypy app tests
-uv run pytest -q tests/test_auth.py tests/test_users.py
+```
+
+The full test suite includes destructive migration checks and therefore requires
+`DATABASE_URL`, `TEST_DATABASE_URL`, and `M1_TEST_DATABASE_URL` to point to an explicitly
+disposable PostgreSQL database whose name ends in `_test`. The verified local command below derives
+that URL without printing credentials. Never run these tests against a development or production
+database.
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m2_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
 ```
 
 ## Frontend Setup
@@ -98,20 +107,21 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 ## Known Limitations
 
 - Refresh tokens are stateless and are not rotated or immediately revocable in M2.
-- Comprehensive M2 PostgreSQL integration and security tests are deferred to Phase 3; the focused preliminary suite does not prove database transaction behavior end to end.
+- Refresh-cookie headers and CORS behavior are covered by TestClient, but persistence and
+  SameSite/Secure behavior have not been manually verified in a real browser deployment.
 - Ticket workflows, ticket-level tenant isolation, WebSocket chat, and product pages belong to later milestones.
 - `npm audit --omit=dev` reports no runtime vulnerabilities. The full audit reports a high-severity `braces` advisory through the Next.js ESLint development-tooling chain; npm's proposed automatic fix is a breaking downgrade of `eslint-config-next`, so it was not applied.
 - Database startup requires a locally provisioned PostgreSQL role and database matching `backend/.env`.
 
 ## Milestone Roadmap
 
-| Milestone | Scope |
-|---|---|
-| M0 | Runnable frontend/backend foundation, PostgreSQL, Alembic, and verified setup |
-| M1 | Database models and migrations |
-| M2 | JWT authentication and securely scoped business user management |
-| M3 | Comprehensive tenant-authorization audit and isolation tests |
-| M4 | Ticket management |
-| M5 | WebSocket chat |
-| M6 | Required frontend flows |
-| M7 | Final tests, seed data, documentation, and demo preparation |
+| Milestone | Scope | Status |
+|---|---|---|
+| M0 | Runnable frontend/backend foundation, PostgreSQL, Alembic, and verified setup | Complete |
+| M1 | Database models and migrations | Complete |
+| M2 | JWT authentication and securely scoped business user management | Complete |
+| M3 | Comprehensive tenant-authorization audit and isolation tests | Not started |
+| M4 | Ticket management | Not started |
+| M5 | WebSocket chat | Not started |
+| M6 | Required frontend flows | Not started |
+| M7 | Final tests, seed data, documentation, and demo preparation | Not started |
