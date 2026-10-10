@@ -34,7 +34,11 @@ def _require_ticket_scope(ticket: Ticket, current_user: User) -> None:
 
 
 def get_authorized_ticket(
-    db: Session, ticket_id: uuid.UUID, current_user: User
+    db: Session,
+    ticket_id: uuid.UUID,
+    current_user: User,
+    *,
+    for_update: bool = False,
 ) -> Ticket:
     """Resolve a ticket inside the trusted user's tenant and ownership scope."""
     require_roles(
@@ -48,7 +52,10 @@ def get_authorized_ticket(
     if current_user.role == UserRole.CUSTOMER:
         predicates.append(Ticket.customer_id == current_user.id)
 
-    ticket = db.scalar(select(Ticket).where(*predicates))
+    statement = select(Ticket).where(*predicates)
+    if for_update:
+        statement = statement.with_for_update()
+    ticket = db.scalar(statement)
     if ticket is None:
         raise _ticket_not_found()
     return ticket
