@@ -2,9 +2,9 @@
 
 ## Status
 
-**PHASE 3 VERIFIED, AWAITING PHASE 4 REVIEW — 2026-10-10.** M3 implementation and Phase 3
-security validation are complete. The plan remains active; M3 has not been marked complete and M4
-has not started.
+**COMPLETE — 2026-10-10.** M3 implementation, security testing, final code review, and
+documentation review are complete. No critical current-scope security defect remains. M4 has not
+started.
 
 ## 1. Objective
 
@@ -526,7 +526,8 @@ operation was performed.
   verification are unchanged.
 - At the end of Phase 2, Phase 3 still needed to review the final diff, repeat/extend adversarial
   authorization verification, confirm error-envelope consistency, and decide readiness for final
-  review. Section 15 records that completed validation; M3 remains active pending Phase 4 review.
+  review. Section 15 records the completed Phase 3 validation, and Section 16 records the completed
+  Phase 4 review and final milestone decision.
 
 ## 15. Phase 3 Security Testing and Validation Record — 2026-10-10
 
@@ -660,4 +661,93 @@ authenticated context. These remain service-level requirements, not migration de
   broadcast, revalidation, and ticket-room broadcast isolation.
 
 These endpoints and WebSocket behaviors do not exist in M3 and are explicitly not reported as
-passing. The execution plan remains under `exec-plans/active/` pending Phase 4 review.
+passing. Phase 4 reviewed these boundaries without treating them as current-scope test evidence.
+
+## 16. Phase 4 Final Security Review and Milestone Decision — 2026-10-10
+
+### Final decision
+
+M3 is **COMPLETE**. The final review inspected the implementation, authentication dependencies,
+RBAC policies, tenant-scoped SQLAlchemy queries, M2/M3 tests, API contract, security guidance, and
+Git scope. All mandatory current-scope acceptance criteria have passing evidence, and no critical
+M3 security defect remains.
+
+The Phase 4 review began from a clean worktree at commit `31f59ba`. That commit contains the Phase
+3 test additions and recorded PostgreSQL results. Phase 4 did not change application source or
+tests, so the Phase 3 database evidence applies to the exact reviewed implementation. The Phase 4
+attempt to repeat PostgreSQL validation was recorded as `NOT RUN`, rather than PASS, because the
+execution sandbox denied both localhost TCP and Unix-socket connections with `Operation not
+permitted`. The sandbox was not bypassed.
+
+### Acceptance criteria
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Verified JWT signature, expiry, and access-token type | PASS | Code review plus Phase 4 auth tests and Phase 3 integration suite |
+| Current User, role, and business resolved from backend state | PASS | `get_current_user` review; forged/deleted-user Phase 3 regressions |
+| Admin, Agent, and Customer policy behavior | PASS | Phase 3 PostgreSQL authorization tests |
+| M2 Admin-only own-business user management preserved | PASS | Phase 3 M2 regression suite; Phase 4 focused unit tests |
+| Ticket query enforces trusted `business_id` | PASS | Resolver query review and Phase 3 policy tests |
+| Customer ticket query enforces ownership | PASS | Resolver query review and Phase 3 policy tests |
+| Missing, cross-tenant, and cross-customer tickets share 404 behavior | PASS | Phase 3 policy tests |
+| Cross-business/non-Agent assignment targets are hidden | PASS | Assignment-policy review and Phase 3 tests |
+| Passwords are hashed and hashes are omitted from responses | PASS | Source/schema review and authentication regressions |
+| No committed real environment secret or token logging | PASS | Only `.env.example` is tracked; application logging/token-output review found no token logging |
+| Approved API contracts remain unchanged | PASS | No M3 route/schema change; Phase 4 OpenAPI/auth suite passed |
+| M4 and M5 boundaries are documented without claiming integration coverage | PASS | Sections 11, 13, 15, and this record |
+
+### Phase 4 commands and outcomes
+
+Commands ran from `backend/` unless noted.
+
+| Command | Result |
+|---|---|
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m compileall -q app alembic tests` | PASS |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff check app tests alembic` | PASS |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff format --check app tests alembic` | PASS — 38 files already formatted |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run mypy app tests` | PASS — no issues in 36 source files |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run pytest -q tests/test_auth.py tests/test_users.py` | PASS — 14 passed, 0 failed, 0 skipped, 1 external warning |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run alembic heads` | PASS — `a3930ac451be` is the single head |
+| Guarded PostgreSQL target check over localhost TCP to `helpdesk_m3_test` | NOT RUN — sandbox denied the connection before database access |
+| Guarded PostgreSQL target check over `/tmp/.s.PGSQL.5432` to `helpdesk_m3_test` | NOT RUN — sandbox denied the connection before database access |
+| Phase 4 M3 authorization, M2 database integration, model, full-suite, and `alembic check` reruns | NOT RUN — require the denied PostgreSQL connection |
+| `git diff --check` before and after documentation edits | PASS |
+| `git ls-files '*env*'` | PASS — only `.env.example` and Alembic's `env.py` are tracked |
+
+The Phase 4 focused HTTP/unit run emitted the existing external Starlette TestClient `httpx`
+deprecation warning. It caused no failure. No tests were skipped. Phase 3 remains the latest
+database-backed evidence: 10 M3 authorization policy tests, 40 focused M2 regressions, 26 model
+tests, and the complete 76-test backend suite all passed with zero failures against the disposable
+`helpdesk_m3_test` database; `alembic check` also reported no model drift.
+
+### Final security findings
+
+- Authentication decisions use verified access tokens and a current database User. Mutable JWT
+  role/business claims and client payload fields are not trusted as authorization context.
+- Existing `/users` endpoints remain Admin-only and tenant-scoped. Public schemas do not contain a
+  password hash.
+- Ticket policies constrain resource lookup by tenant in SQL and add Customer ownership in the
+  same query. Inaccessible and nonexistent resources use the same non-disclosing 404 response.
+- Assignment target lookup constrains business and Agent role. Staff action checks first authorize
+  the ticket, preventing a cross-tenant actor from probing assignment or status behavior.
+- No unexpected endpoint, schema, migration, dependency, frontend, or infrastructure change was
+  introduced in M3.
+- No current-scope defect required a Phase 4 source fix. The two Phase 3 coverage gaps and their
+  passing regressions remain documented in Section 15.
+
+### Remaining risks and deferred integration
+
+- **DEFERRED TO M4:** actual Ticket REST routes must call these policies for create, list, detail,
+  assignment, and status operations; validate same-business Customer/Agent relationships; enforce
+  the complete transition map and Customer reopen rule; atomically persist the first message; and
+  test endpoint-level isolation and assignment concurrency.
+- **DEFERRED TO M5:** WebSocket and message flows must validate an access token, authorize the
+  parent ticket before acceptance/history/send, enforce ownership and Admin read-only behavior,
+  reject closed-ticket messages, persist before broadcast, revalidate sensitive operations, and
+  isolate each broadcast room.
+- Refresh tokens remain stateless/non-rotating, and real-browser cookie behavior remains manually
+  unverified. These are documented limitations inherited from M2, not M3 blockers.
+- Policy-level tests are not evidence that future Ticket endpoints or WebSocket connections are
+  secure. Their milestone-specific integration tests remain mandatory.
+
+M3 is ready for review and subsequent M4 planning only after explicit user confirmation.

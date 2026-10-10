@@ -4,7 +4,10 @@ HelpDesk Mini is a multi-tenant support-ticket application being built for the S
 
 ## Implementation Status
 
-M0 provides the project foundation, M1 provides the PostgreSQL domain models and initial Alembic migration, and M2 provides verified JWT authentication plus tenant-scoped Admin user management. Ticket APIs, WebSocket chat, and the product frontend are not implemented yet.
+M0 provides the project foundation, M1 provides the PostgreSQL domain models and initial Alembic
+migration, M2 provides verified JWT authentication plus tenant-scoped Admin user management, and
+M3 provides verified reusable role and ticket-resource authorization policies. Ticket APIs,
+WebSocket chat, and the product frontend are not implemented yet.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
@@ -71,8 +74,15 @@ that URL without printing credentials. Never run these tests against a developme
 database.
 
 ```bash
-UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m2_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m3_test'); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
 ```
+
+The M3 Phase 3 run of that guarded command passed 76 tests with no failures. The final Phase 4
+review also passed compile/import validation, Ruff lint and format checks, strict mypy, the 14
+non-database authentication/user tests, and the single-head Alembic check. PostgreSQL tests were
+not rerun during Phase 4 because the restricted execution sandbox denied both local TCP and Unix
+socket access; the prior Phase 3 PostgreSQL evidence is recorded in the completed M3 execution
+plan.
 
 ## Frontend Setup
 
@@ -102,6 +112,9 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 - Credentialed CORS accepts only explicitly configured development origins.
 - Alembic is connected to the shared SQLAlchemy metadata and M1 provides the initial domain migration.
 - Protected M2 requests validate token type and resolve current role and business membership from PostgreSQL instead of authorizing from JWT claims alone.
+- Reusable M3 policies scope ticket lookup by the trusted current User's business and additionally
+  enforce Customer ownership. Assignment and status actor policies preserve non-disclosing 404
+  behavior for inaccessible tickets and related resources.
 - Mandatory security and functional flows take priority over optional infrastructure and UI polish.
 
 ## Known Limitations
@@ -109,7 +122,11 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 - Refresh tokens are stateless and are not rotated or immediately revocable in M2.
 - Refresh-cookie headers and CORS behavior are covered by TestClient, but persistence and
   SameSite/Secure behavior have not been manually verified in a real browser deployment.
-- Ticket workflows, ticket-level tenant isolation, WebSocket chat, and product pages belong to later milestones.
+- M3 verifies reusable ticket authorization policies, not Ticket REST endpoint integration. M4
+  must invoke them for every ticket workflow and add transition, assignment, and atomic-create
+  rules.
+- M5 must integrate the same authenticated ticket authorization into message history, message
+  sending, and WebSocket connection/event handling; none of those flows exists yet.
 - `npm audit --omit=dev` reports no runtime vulnerabilities. The full audit reports a high-severity `braces` advisory through the Next.js ESLint development-tooling chain; npm's proposed automatic fix is a breaking downgrade of `eslint-config-next`, so it was not applied.
 - Database startup requires a locally provisioned PostgreSQL role and database matching `backend/.env`.
 
@@ -120,7 +137,7 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 | M0 | Runnable frontend/backend foundation, PostgreSQL, Alembic, and verified setup | Complete |
 | M1 | Database models and migrations | Complete |
 | M2 | JWT authentication and securely scoped business user management | Complete |
-| M3 | Comprehensive tenant-authorization audit and isolation tests | Not started |
+| M3 | Comprehensive tenant-authorization audit and isolation tests | Complete |
 | M4 | Ticket management | Not started |
 | M5 | WebSocket chat | Not started |
 | M6 | Required frontend flows | Not started |
