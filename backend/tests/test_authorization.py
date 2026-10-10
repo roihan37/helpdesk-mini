@@ -219,6 +219,32 @@ def test_assignment_policy_rejects_agent_assigning_other_and_customer(
         assert denied.value.code == "FORBIDDEN"
 
 
+def test_assignment_and_status_policies_hide_ticket_from_cross_tenant_staff(
+    db: Session,
+) -> None:
+    business_a = add_business(db)
+    customer_a = add_user(db, business_a, UserRole.CUSTOMER)
+    ticket_a = add_ticket(db, business_a, customer_a)
+    business_b = add_business(db)
+    admin_b = add_user(db, business_b, UserRole.ADMIN)
+    agent_b = add_user(db, business_b, UserRole.AGENT)
+
+    with pytest.raises(AppError) as assignment_denied:
+        get_authorized_assignment_agent(db, ticket_a, admin_b, agent_b.id)
+    with pytest.raises(AppError) as status_denied:
+        authorize_ticket_status_update(ticket_a, admin_b, TicketStatus.IN_PROGRESS)
+
+    assert error_signature(assignment_denied.value) == (
+        404,
+        "TICKET_NOT_FOUND",
+        "Ticket not found.",
+        None,
+    )
+    assert error_signature(status_denied.value) == error_signature(
+        assignment_denied.value
+    )
+
+
 def test_status_policy_allows_staff_and_only_customer_reopen(db: Session) -> None:
     business = add_business(db)
     admin = add_user(db, business, UserRole.ADMIN)

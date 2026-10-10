@@ -401,6 +401,22 @@ def test_me_rejects_missing_or_invalid_access_credentials(
     assert response.headers["www-authenticate"] == "Bearer"
 
 
+def test_me_rejects_access_token_after_user_is_deleted(
+    client: TestClient, db: Session
+) -> None:
+    business = create_business(db, "Deleted Identity")
+    user = create_user(db, business, UserRole.CUSTOMER)
+    headers = bearer(user)
+
+    db.delete(user)
+    db.commit()
+
+    response = client.get("/auth/me", headers=headers)
+
+    assert_standard_error(response, 401, "AUTH_TOKEN_INVALID")
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
 def test_admin_lists_only_current_database_tenant(
     client: TestClient, db: Session
 ) -> None:

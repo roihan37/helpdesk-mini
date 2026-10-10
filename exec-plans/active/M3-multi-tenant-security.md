@@ -2,9 +2,9 @@
 
 ## Status
 
-**IMPLEMENTED, PENDING PHASE 3 VERIFICATION — 2026-10-10.** M3 Phase 2 implementation and
-preliminary validation are complete. The plan remains active; M3 has not been marked complete and
-M4 has not started.
+**PHASE 3 VERIFIED, AWAITING PHASE 4 REVIEW — 2026-10-10.** M3 implementation and Phase 3
+security validation are complete. The plan remains active; M3 has not been marked complete and M4
+has not started.
 
 ## 1. Objective
 
@@ -516,7 +516,7 @@ operation was performed.
   messages; commit before broadcast; and isolate connections/broadcasts by ticket. No M5 behavior
   is claimed as tested.
 
-### Remaining risks and Phase 3 work
+### Remaining risks and Phase 3 work recorded at the end of Phase 2
 
 - Future endpoints can still become unsafe if they fail to invoke these policies; M4/M5 integration
   and endpoint-level tests remain mandatory.
@@ -524,5 +524,140 @@ operation was performed.
   are service-level checks because the current foreign keys do not encode them all.
 - The existing stateless, non-rotating refresh-token limitation and outstanding real-browser cookie
   verification are unchanged.
-- Phase 3 must review the final diff, repeat/extend adversarial authorization verification, confirm
-  error-envelope consistency, and decide milestone completion. M3 remains active until that review.
+- At the end of Phase 2, Phase 3 still needed to review the final diff, repeat/extend adversarial
+  authorization verification, confirm error-envelope consistency, and decide readiness for final
+  review. Section 15 records that completed validation; M3 remains active pending Phase 4 review.
+
+## 15. Phase 3 Security Testing and Validation Record — 2026-10-10
+
+### Validation outcome
+
+M3 Phase 3 is **READY FOR PHASE 4 REVIEW**. The final guarded backend suite passed 76 tests with
+zero failures, including 40 focused M2 authentication/user-management regressions, 10 M3
+authorization policy tests, and 26 focused M1 model/constraint tests. No current-scope production
+security defect was found, and no production source file, dependency, model, or migration required
+a change.
+
+Two nonduplicative coverage gaps were identified and closed:
+
+- Added an endpoint regression proving an already-issued access token is rejected with the standard
+  401 response after its User is deleted from PostgreSQL.
+- Added policy regressions proving cross-tenant staff cannot use either assignment-target or status
+  authorization against a foreign ticket, and receive the same non-disclosing
+  `TICKET_NOT_FOUND` 404 response.
+
+These were missing assertions, not observed authorization bypasses. Both new tests passed against
+the disposable PostgreSQL database.
+
+### Tests modified
+
+- `backend/tests/test_m2_integration.py`: added
+  `test_me_rejects_access_token_after_user_is_deleted`.
+- `backend/tests/test_authorization.py`: added
+  `test_assignment_and_status_policies_hide_ticket_from_cross_tenant_staff`.
+
+No test assertion was weakened and no authorization check was removed.
+
+### Exact commands and results
+
+All commands ran from `backend/` except the Git commands, which ran from the repository root.
+Database commands derived the configured local PostgreSQL URL, replaced only the database name
+with `helpdesk_m3_test`, asserted the PostgreSQL driver and `_test` suffix, and set `DATABASE_URL`,
+`TEST_DATABASE_URL`, and `M1_TEST_DATABASE_URL` only inside the test process.
+
+The exact guarded pytest command body was executed with each argument list shown in the table:
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m3_test'); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(PYTEST_ARGUMENT_LIST))"
+```
+
+| Command | Result |
+|---|---|
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m compileall -q app alembic tests` | PASS |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff check app tests alembic` | PASS |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff format --check app tests alembic` | PASS — 38 files already formatted |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run mypy app tests` | PASS — no issues in 36 source files |
+| Guarded pytest with `PYTEST_ARGUMENT_LIST=['-q','tests/test_auth.py','tests/test_users.py','tests/test_authorization.py','tests/test_m2_integration.py','--tb=short']` | PASS — 50 passed, 0 failed, 1 external warning |
+| Guarded pytest with `PYTEST_ARGUMENT_LIST=['-q','tests/test_auth.py','tests/test_users.py','tests/test_m2_integration.py','--tb=short']` | PASS — 40 passed, 0 failed, 1 external warning |
+| Guarded pytest with `PYTEST_ARGUMENT_LIST=['-q','tests/test_models.py','--tb=short']` | PASS — 26 passed, 0 failed |
+| Guarded pytest with `PYTEST_ARGUMENT_LIST=['-q','--tb=short']` | PASS — 76 passed, 0 failed, 1 external warning |
+| `UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run alembic heads` | PASS — `a3930ac451be` is the single head |
+| Guarded Python invocation ending in `from alembic.config import main; main(argv=['check'])` against `helpdesk_m3_test` | PASS — no new upgrade operations detected |
+| `git diff --check` | PASS |
+| Changed-test diff scan for password, secret, token, API-key, and credential terms | PASS — only expected test names/error assertions matched; no hardcoded credential value found |
+
+The warning in HTTP test runs is the existing external `StarletteDeprecationWarning` about its
+TestClient `httpx` compatibility layer. It is not a test failure.
+
+Two command-attempt issues were encountered and resolved without code changes:
+
+- The first guarded database pytest attempt inside the restricted sandbox produced 15 passes and
+  35 setup errors because localhost TCP access was denied with `Operation not permitted`. The same
+  guarded command was rerun with approved localhost access and passed 50/50 tests. No assertion
+  failed in the blocked attempt.
+- The first read-only database-target diagnostic had a shell/Python quoting error. The corrected
+  diagnostic reported that `TEST_DATABASE_URL` was unset in the shell; all database test commands
+  therefore derived the target from application settings and explicitly forced
+  `helpdesk_m3_test` before connecting.
+
+No database was dropped, truncated, downgraded, or reset.
+
+### Authentication and RBAC evidence
+
+- Invalid-signature, expired, and wrong-token-type credentials return 401; refresh tokens cannot
+  authorize `/auth/me`.
+- `/auth/me` reloads the User from PostgreSQL. Forged JWT role/business claims do not change the
+  response identity, and a deleted or nonexistent User is rejected.
+- Admin user management remains constrained to the Admin's database-backed business. Agent and
+  Customer list/create attempts return 403 even when token claims falsely assert Admin.
+- Request payloads cannot override `business_id` or create an Admin through the managed-user
+  endpoint. Password hashes remain absent from responses.
+- Same-business Admin and Agent ticket access is allowed. An Agent can select only themselves as
+  assignment target; Customers cannot perform staff-only assignment actions.
+
+### Tenant and resource-isolation evidence
+
+- Ticket lookup SQL contains `Ticket.id` and `Ticket.business_id == current_user.business_id`;
+  Customer lookup additionally contains `Ticket.customer_id == current_user.id` before execution.
+- Cross-business staff, same-business non-owning Customers, and nonexistent ticket IDs receive the
+  same `TICKET_NOT_FOUND` 404 shape.
+- Cross-business and non-Agent assignment targets receive the same generic resource-not-found
+  response. Cross-tenant actors are rejected before assignment or status policy evaluation can
+  disclose or operate on the ticket.
+- Current `/users` queries remain scoped by the authenticated database User's business rather than
+  request input or mutable JWT claims.
+
+### Database security review
+
+The focused 26-test model suite and the no-drift Alembic check verified the existing M1 foreign
+keys, unique/check constraints, nullable assignment, enum values, relationships, and ticket
+`(business_id, status)` index. The database guarantees that referenced Business, User, Ticket, and
+Message rows exist.
+
+The current schema intentionally does not encode all cross-row authorization invariants. M4 must
+enforce that a ticket Customer and assigned Agent belong to the ticket business and that the
+assignee has the Agent role. M5 must authorize the Message sender through the parent ticket and
+authenticated context. These remain service-level requirements, not migration defects.
+
+### Defects, fixes, and limitations
+
+- **Critical M3 security defects:** none found.
+- **Production fixes:** none required.
+- **Test coverage fixes:** the two regressions listed above.
+- Refresh tokens remain stateless and non-rotating, so immediate revocation is unavailable.
+- Refresh-cookie behavior has automated HTTP coverage but still lacks the documented real-browser
+  verification.
+- Policy helpers are verified, but future endpoints remain unsafe unless M4/M5 consistently invoke
+  them and apply their additional write/message invariants.
+
+### Deferred integration tests — not passed in M3
+
+- **DEFERRED TO M4:** Ticket CRUD endpoint isolation, assignment endpoint protection, status
+  endpoint protection, Customer reopen authorization, complete transition rules, atomic initial
+  message creation, and race-safe self-assignment.
+- **DEFERRED TO M5:** WebSocket handshake authorization, ticket ownership checks, message-send
+  authorization, Admin read-only behavior, closed-ticket message rejection, persistence before
+  broadcast, revalidation, and ticket-room broadcast isolation.
+
+These endpoints and WebSocket behaviors do not exist in M3 and are explicitly not reported as
+passing. The execution plan remains under `exec-plans/active/` pending Phase 4 review.
