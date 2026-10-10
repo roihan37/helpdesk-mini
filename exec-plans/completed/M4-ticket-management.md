@@ -2,8 +2,9 @@
 
 ## Status
 
-**READY FOR PHASE 4 REVIEW — Phase 3 verified on 2026-10-10.** The plan remains active and M4 is
-not marked complete. Final milestone review has not been performed.
+**COMPLETE — Phase 4 final review passed on 2026-10-10.** All mandatory current-scope M4
+acceptance criteria were verified against disposable PostgreSQL, no critical M4 security blocker
+remains, and M5 functionality remains explicitly deferred.
 
 ## 1. Objective
 
@@ -669,3 +670,110 @@ TestClient compatibility layer. Phase 3 did not change dependencies.
 
 **Phase 3 result: READY FOR PHASE 4 REVIEW.** Do not move this plan to `completed/`, begin Phase 4,
 or proceed to M5 without separate approval.
+
+## 19. Phase 4 Final Review Record — 2026-10-10
+
+### Functional and acceptance review
+
+- OpenAPI and source inspection confirm exactly the four M4 operations: `GET /tickets`,
+  `POST /tickets`, `GET /tickets/{id}`, and `PATCH /tickets/{id}`. All use access-token
+  authentication, explicit request/response schemas, and the standard application error envelope.
+- Customer creation derives tenant, owner, sender, initial `open` status, and null assignment from
+  trusted server context. A targeted Message-insert failure test proves that Ticket and initial
+  Message rollback together rather than relying only on a successful creation test.
+- Listing applies tenant and Customer-owner predicates in SQL, validates every supported status,
+  rejects invalid status values, returns empty lists, and orders by `updated_at DESC, id DESC` for
+  deterministic latest-activity ordering.
+- Detail access gives Admin/Agent same-business visibility and Customer owner-only visibility.
+  Missing, cross-business, and cross-Customer resources use the same non-disclosing 404 response.
+- Admin same-business Agent assignment/reassignment, Agent self-claim, conflict behavior, all
+  approved status transitions, owning-Customer reopen, same-status no-op, terminal closed state,
+  meaningful `updated_at` changes, and combined PATCH atomicity were verified.
+
+All Section 13 acceptance criteria are **PASS**. No API contract change was made.
+
+### Security and database review
+
+- Trusted identity, role, and `business_id` continue to come from the M2 database-backed current
+  User dependency; refresh, malformed, and missing tokens cannot authenticate Ticket endpoints.
+- Every single-Ticket query uses the centralized M3 resolver with tenant and, for Customers,
+  ownership predicates. Listing has equivalent predicates directly in its SQL statement. Creation
+  schemas reject every client-controlled identity/state field.
+- Assignment resolution restricts targets to same-business Agents without disclosing foreign or
+  wrong-role users. Alternate/combined PATCH shapes cannot bypass operation-specific validation.
+- Ticket/Message foreign keys, allowed-value constraints, nullable assignment, and the
+  `(business_id, status)` index were inspected through live PostgreSQL integration tests.
+- Creation and update paths commit once and roll back on exceptions. Updates lock the authorized
+  Ticket row before validation; a two-session concurrent-claim test produces one winner and one
+  documented conflict with no silent overwrite.
+- Session ownership remains request-scoped through `get_db`; no orphan row, leaked credential,
+  password hash, token, SQL exception, or cross-tenant existence disclosure was found.
+
+No destructive database operation was performed during this review. Every database command was
+guarded to PostgreSQL database `helpdesk_m4_test`, whose name satisfies the required `_test`
+suffix.
+
+### Exact Phase 4 validation commands and outcomes
+
+Run from `backend/`:
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m compileall -q app alembic tests
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff check app alembic tests
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff format --check app alembic tests
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run mypy app tests
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run alembic heads
+```
+
+Results: **PASS**; Ruff reported all checks passed, format reported 42 files formatted, mypy found
+no issues in 40 source files, and Alembic reported the single head `a3930ac451be`.
+
+The guarded wrapper from Section 14 was executed with these pytest argument lists:
+
+```text
+['-q', 'tests/test_tickets.py', '--tb=short']
+['-q', 'tests/test_auth.py', 'tests/test_users.py', 'tests/test_m2_integration.py', 'tests/test_authorization.py', 'tests/test_models.py', '--tb=short']
+['-q', '--tb=short']
+```
+
+- Focused M4 integration/security/concurrency/lifecycle suite: **PASS — 36 passed, 0 failed,
+  0 skipped, 1 warning**.
+- M1-M3 authentication/authorization/model regression selection: **PASS — 76 passed, 0 failed,
+  0 skipped, 1 warning**.
+- Complete backend suite: **PASS — 112 passed, 0 failed, 0 skipped, 1 warning**.
+
+The guarded Section 14 Alembic command using `main(argv=['check'])` was also executed:
+**PASS — no new upgrade operations detected**. The only pytest warning is the pre-existing
+`StarletteDeprecationWarning` from FastAPI TestClient compatibility; it is not an M4 functional or
+security failure. No mandatory check was skipped or left not run.
+
+### Defects, code quality, and scope
+
+No production-code defect was found during Phase 4, so no source or test correction was needed.
+Routers remain thin, service logic is typed and localized, M3 authorization helpers are reused,
+transactions have explicit rollback behavior, and no new dependency, migration, secret, frontend,
+M5 behavior, or unrelated refactor was introduced. README and this execution record are the only
+Phase 4 modifications.
+
+### M5 integration readiness and remaining risks
+
+M5 can reuse `get_current_user`, `get_authorized_ticket`, the Customer ownership policy, `Ticket`
+status, and the existing `Message` relationships/model. It must add the authorized chronological
+message-history endpoint and authenticate/authorize the WebSocket before acceptance. Message
+persistence must precede broadcast, closed Tickets must reject new messages, committed messages
+must advance Ticket activity, and committed status changes must be broadcast only to authorized
+room participants. M5 writers must use compatible Ticket row locking to prevent close-versus-send
+races.
+
+M4 does **not** verify message history, WebSocket authentication/chat/broadcasts, closed-ticket
+message rejection, or real-browser behavior. Cross-row same-business/role integrity remains an
+application-service invariant because simple foreign keys cannot express it, and the PostgreSQL-
+specific row-lock discipline must be followed by future competing writers. The inherited stateless
+refresh-token limitation is unchanged.
+
+### Final milestone decision
+
+**M4 COMPLETE.** All mandatory current-scope Ticket REST, security, transaction, concurrency, and
+regression requirements have fresh passing evidence. No critical M4 vulnerability or unresolved
+acceptance blocker remains. This plan was moved to `exec-plans/completed/`; work stops here, and M5
+must not be created or implemented without separate approval.
