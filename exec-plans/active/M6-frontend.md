@@ -2,12 +2,12 @@
 
 ## Status
 
-**PLANNED — AWAITING PHASE 2 APPROVAL**
+**PHASE 2 IMPLEMENTED — PENDING PHASE 3 VERIFICATION**
 
 Phase 1 planning date: 2026-10-10
 
-This document is the implementation plan for M6 only. No frontend implementation, backend
-contract change, commit, or push is authorized by this phase.
+This document remains active through M6 verification. Phase 2 frontend implementation is complete;
+the browser integration matrix and milestone completion remain reserved for later review phases.
 
 The supplied Phase 1 brief ends mid-sentence after requiring tasks to be organized in dependency
 order. The complete preceding requirements are actionable; the ordered tasks below use those
@@ -56,8 +56,9 @@ storage or adding unsupported product features.
   envelope.
 - Browser access tokens use the Authorization header and remain in memory. The refresh token is an
   HttpOnly, `SameSite=Lax`, `/auth/refresh` cookie; refresh calls require credentials.
-- Public auth endpoints are business registration, login, and refresh. `/auth/me` resolves the
-  authenticated user and business. There is no logout or token-revocation endpoint.
+- Public auth endpoints are business registration, login, refresh, and the user-approved
+  idempotent logout endpoint. `/auth/me` resolves the authenticated user and business. Logout
+  expires the browser refresh cookie but does not provide server-side token revocation.
 - Admin-only `/users` supports list and create for Agent or Customer users.
 - Ticket list/detail/create/update and message-history endpoints are implemented with role, tenant,
   ownership, assignment, and transition enforcement.
@@ -84,7 +85,7 @@ storage or adding unsupported product features.
 
 ### Out of scope
 
-- Backend or API-contract changes, including a fabricated logout endpoint
+- Backend or API-contract changes beyond the user-approved logout endpoint
 - M7 seed/demo work or additional backend test scope
 - Analytics, dashboards, reports, billing, notification centers, settings, search, or pagination
 - User edit/delete/invite/password reset
@@ -159,9 +160,10 @@ Route groups do not change public URLs. Prefer feature-local files until a compo
 6. Public auth pages redirect an already authenticated user to `/tickets` after bootstrap.
 7. Role guards improve presentation only. A forbidden backend response remains authoritative.
 
-Because the HttpOnly refresh cookie cannot be cleared by frontend JavaScript and the API exposes no
-logout endpoint, M6 must not show a misleading Sign out action. The Account menu displays current
-identity and business only; true logout remains an explicitly documented backend limitation.
+The Account menu calls `POST /auth/logout`. After the backend expires the path-scoped HttpOnly
+refresh cookie, the frontend discards its memory-only access token, clears protected query data,
+and redirects to `/login`. A failed request leaves the visible session intact and presents an error
+instead of falsely reporting success. Stateless copied JWTs are not revoked server-side.
 
 ### 4.5 API and error handling
 
@@ -258,7 +260,7 @@ storms and infinite retry loops are prevented; role checks never replace backend
 - Manage drawer focus, Escape close, focus return, and body overflow.
 
 **Acceptance:** All roles see only documented navigation; keyboard and mobile navigation work; no
-unsupported settings or fake logout action appears.
+unsupported settings appear; Sign out clears the backend cookie and local authenticated state.
 
 ### M6-04 — Implement login and business registration
 
@@ -465,7 +467,7 @@ Do not report any item as PASS without executing it. Record failures and NOT RUN
 
 | Risk | Mitigation / required evidence |
 |---|---|
-| No backend logout/cookie-clear endpoint | Do not present fake logout; document limitation for later approved contract work. |
+| Stateless logout cannot revoke copied JWTs | Expire the browser cookie, clear memory-only state, and document that copied tokens remain valid until expiration. |
 | Access token is lost on reload | Bootstrap with credentialed refresh before protected queries render. |
 | Concurrent 401s cause refresh storms | Share one refresh promise and retry each request at most once. |
 | REST history/socket-open race loses a message | Refetch history after socket opens and merge by ID/order. |
@@ -497,7 +499,129 @@ Do not report any item as PASS without executing it. Record failures and NOT RUN
 - **NOT RUN** — frontend lint, typecheck, build, and browser integration. This is a planning-only
   phase and no frontend source or dependency file was changed.
 
-## 13. Approval Gate
+## 13. Phase 2 Implementation Record
 
-Stop after Phase 1. Phase 2 may begin only after this plan and `docs/FRONTEND_UIUX.md` are reviewed
-and explicitly approved. Do not proceed automatically to implementation or M7.
+Implementation date: 2026-10-11
+
+### Task status
+
+- **M6-01 through M6-10 — IMPLEMENTED.** Foundations, typed transport, authentication lifecycle,
+  responsive shell, auth pages, Ticket list/create/detail, WebSocket chat, Ticket actions, and Admin
+  Team management are present.
+- **M6-11 — IMPLEMENTED, PENDING MANUAL VERIFICATION.** Responsive and accessible states, labelled
+  controls, focus styles, mobile navigation, error states, and reduced-motion handling are present.
+  Keyboard, assistive-technology, and 320px real-browser checks remain for Phase 3.
+- **M6-12 — PARTIAL.** Clean install, static checks, focused tests, production build, dependency
+  audit, and HTTP route smoke tests were executed. The disposable-data browser integration matrix
+  was not run in Phase 2, so M6 remains active and is not marked complete.
+
+### Files created or modified
+
+- Frontend foundations: `package.json`, `package-lock.json`, `tsconfig.json`, root layout, root route,
+  and global design tokens/styles.
+- Routes: `/login`, `/register`, `/tickets`, `/tickets/new`, `/tickets/[id]`, and `/admin/users`,
+  grouped under public-auth and protected-app layouts.
+- Shared code: UI primitives, responsive application shell, typed API/WebSocket contracts, central
+  API client, environment/query utilities, auth provider and guards, Ticket/User feature modules,
+  WebSocket lifecycle hook, and focused domain tests.
+- Documentation: this active execution plan, `README.md`, `docs/API_CONTRACT.md`, and
+  `docs/SECURITY.md`.
+- User-approved logout extension: the backend auth router and focused auth tests.
+
+### Implemented security behavior
+
+- Access tokens remain memory-only. Login response refresh-token text is discarded; refresh uses
+  the approved credentialed HttpOnly cookie contract.
+- Protected cache data is cleared on auth loss, safe local return paths prevent open redirects, and
+  concurrent 401 recovery uses one shared refresh operation with at most one request retry.
+- Role-aware navigation and controls mirror backend permissions without being treated as an
+  authorization boundary. Inaccessible Tickets retain a generic not-found presentation.
+- Message bodies use React text rendering. No JWT, password, `business_id`, or raw HTML is logged,
+  persisted in browser storage, or exposed as an editable field.
+- WebSocket chat opens only after Ticket/history authorization succeeds, accepts only server-
+  confirmed messages, deduplicates by Message ID, reconciles after connection, applies committed
+  status events, stops blind reconnect on policy close, and cleans up on unmount.
+- Logout validates browser origins, expires the refresh cookie with its original path and security
+  attributes, clears memory-only access state and protected query data, and prevents an in-flight
+  refresh response from restoring access after logout. It does not claim server-side JWT revocation.
+
+### User-approved logout extension validation
+
+The following focused checks were executed after adding `POST /auth/logout` and the Account-menu
+integration:
+
+```bash
+cd backend
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache /Users/amiramilin/.local/bin/uv run pytest -q tests/test_auth.py
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache /Users/amiramilin/.local/bin/uv run ruff check app/api/routes/auth.py tests/test_auth.py
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache /Users/amiramilin/.local/bin/uv run ruff format --check app/api/routes/auth.py tests/test_auth.py
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache /Users/amiramilin/.local/bin/uv run mypy app/api/routes/auth.py
+
+cd frontend
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm run lint
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm run typecheck
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm test
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm run build
+
+cd ..
+git diff --check
+```
+
+- **PASS** — backend auth tests: 11 passed, including scoped HttpOnly cookie deletion and rejection
+  of a disallowed logout origin. One existing upstream TestClient deprecation warning remains.
+- **PASS** — focused backend Ruff lint/format and mypy checks.
+- **PASS** — frontend ESLint and strict TypeScript checks.
+- **PASS** — focused frontend domain tests: 3 passed. The existing Node module-type warning remains.
+- **PASS** — frontend production build compiled all required routes.
+- **PASS** — `git diff --check` found no whitespace errors.
+- **NOT RUN** — real-browser logout interaction. This remains part of Phase 3 browser verification.
+
+### Actual Phase 2 validation
+
+Commands were run from `frontend/` with Node/npm supplied by the installed NVM runtime because the
+automation shell's default `PATH` did not include `npm`:
+
+```bash
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm ci
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm run lint
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm run typecheck
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm test
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm run build
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm audit --omit=dev
+PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/sbin npm audit
+```
+
+- **PASS** — `npm ci`: 360 packages installed from the lockfile. npm reported an unapproved
+  `unrs-resolver` postinstall script; the install and subsequent checks still completed.
+- **PASS** — ESLint: 0 errors.
+- **PASS** — strict TypeScript check: 0 errors.
+- **PASS** — focused domain tests: 3 passed, 0 failed. Node emitted a non-blocking module-type
+  warning for the TypeScript test file.
+- **PASS** — production webpack build: all required routes compiled successfully.
+- **PASS** — production dependency audit: 0 vulnerabilities.
+- **FAIL (non-runtime/dev tooling)** — full dependency audit: 5 high-severity findings in the
+  `braces` dependency through the Next.js ESLint toolchain. npm's proposed fix force-downgrades
+  `eslint-config-next` across a breaking version boundary, so it was not applied.
+- **PASS** — production runtime smoke test: `next start` became ready on `127.0.0.1:3100`; `/`
+  returned its expected 307 redirect and `/login` plus `/tickets` returned HTTP 200. The initial
+  sandboxed bind attempt failed with `EPERM`; the same command passed with explicit local-bind
+  permission.
+- **PASS** — `git diff --check`: no whitespace errors.
+- **NOT RUN** — the 13-item browser integration matrix, including two-client WebSocket behavior,
+  real PostgreSQL workflows, role/tenant denial cases, assistive-technology checks, and viewport
+  coverage. These require the Phase 3 disposable test environment and must not be inferred from the
+  static/build results.
+
+### Remaining Phase 3 work and risks
+
+- Execute the complete browser integration matrix against the real single-worker backend and a
+  disposable PostgreSQL dataset, including multi-user and cross-tenant cases.
+- Verify refresh-cookie behavior, WebSocket reconnect/cleanup, focus trapping/restoration, long
+  content, and 320px layouts in actual supported browsers.
+- Decide separately whether to accept the development-only ESLint transitive advisory or upgrade
+  when a non-breaking patched dependency path is available. Do not use the proposed force downgrade.
+- The user-approved logout endpoint and Account-menu integration are implemented. Phase 3 must
+  verify cookie deletion, redirect behavior, failed-request handling, and reload behavior in a real
+  browser. Logout does not revoke copied stateless JWTs server-side.
+
+Do not move this plan to `completed/`, start M7, commit, or push during Phase 2.

@@ -423,6 +423,11 @@ For genuinely cross-site cookie usage, `SameSite=None` requires HTTPS, `Secure=t
 
 API clients such as Postman may test refresh by retaining the cookie set at login in a cookie jar. JSON-body refresh tokens are not part of the selected contract.
 
+Logout expires this cookie with the same attributes, including `Path=/auth/refresh`. The frontend
+then removes its memory-only access token. Logout is idempotent and does not require a valid token,
+but browser requests with an `Origin` header are subject to the same allowed-origin validation as
+refresh.
+
 ### 6.3 CSRF Protection
 
 **DECISION**
@@ -478,6 +483,9 @@ Consequences:
 - A copied refresh token may remain usable until expiration.
 - Clearing a browser cookie does not invalidate previously copied tokens.
 - Refresh-token rotation is not implemented initially.
+
+The logout endpoint clears the current browser cookie and frontend authentication state only. It
+does not add a server-side denylist or invalidate JWT copies held outside that browser.
 
 These limitations must be disclosed in README.
 

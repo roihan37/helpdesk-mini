@@ -279,6 +279,7 @@ For browser authentication:
 5. Browser calls `/auth/refresh` with credentials enabled.
 6. Backend reads the refresh token from the cookie.
 7. Successful refresh returns a new access token.
+8. Logout expires the refresh cookie and the frontend discards its in-memory access token.
 
 Recommended cookie properties:
 
@@ -459,7 +460,30 @@ The initial MVP does not guarantee immediate refresh-token revocation or rotatio
 
 ---
 
-### AUTH-04: Current User
+### AUTH-04: Logout
+
+```http
+POST /auth/logout
+```
+
+**Access:** Public, with allowed-origin validation for browser requests
+
+**Success:** 204 No Content
+
+No request body is required. The endpoint is idempotent and expires the refresh-token cookie using
+the same `Path`, `HttpOnly`, `SameSite`, and environment-controlled `Secure` attributes used at
+login. The frontend discards its in-memory access token only after this request succeeds.
+
+Logout ends the current browser session, but it does not revoke copied JWTs server-side. Stateless
+access and refresh tokens remain valid until expiration.
+
+**Possible Errors**
+
+- 403: Request origin is not allowed.
+
+---
+
+### AUTH-05: Current User
 
 ```http
 GET /auth/me
@@ -1362,6 +1386,7 @@ Automatic reconnection is an implementation-quality choice, not an additional ma
 | POST /auth/register-business | Public | Public | Public |
 | POST /auth/login | Public | Public | Public |
 | POST /auth/refresh | Valid refresh | Valid refresh | Valid refresh |
+| POST /auth/logout | Public, allowed origin | Public, allowed origin | Public, allowed origin |
 | GET /auth/me | Yes | Yes | Yes |
 | GET /users | Yes | No | No |
 | POST /users | Yes | No | No |

@@ -44,6 +44,16 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key="refresh_token",
+        httponly=True,
+        secure=settings.refresh_cookie_secure,
+        samesite="lax",
+        path="/auth/refresh",
+    )
+
+
 def _validate_refresh_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     if origin is None:
@@ -123,6 +133,17 @@ def refresh(
             expires_in=settings.access_token_expire_minutes * 60,
         )
     )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={403: {"model": ErrorResponse}},
+)
+def logout(request: Request, response: Response) -> None:
+    """End the browser session by expiring its path-scoped refresh cookie."""
+    _validate_refresh_origin(request)
+    _clear_refresh_cookie(response)
 
 
 @router.get(

@@ -127,6 +127,45 @@ def test_refresh_requires_cookie_and_rejects_disallowed_origin() -> None:
     assert disallowed.json()["error"]["code"] == "FORBIDDEN"
 
 
+def test_logout_clears_scoped_httponly_cookie() -> None:
+    tokens = SecurityTokenPair(access_token="access.jwt", refresh_token="refresh.jwt")
+    with patch("app.api.routes.auth.authenticate_user", return_value=tokens):
+        with TestClient(app) as logout_client:
+            login_response = logout_client.post(
+                "/auth/login",
+                json={"email": "admin@example.com", "password": "password123"},
+            )
+            assert login_response.status_code == 200
+            assert any(
+                cookie.name == "refresh_token" for cookie in logout_client.cookies.jar
+            )
+
+            response = logout_client.post("/auth/logout")
+            assert not any(
+                cookie.name == "refresh_token" for cookie in logout_client.cookies.jar
+            )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    cookie = response.headers["set-cookie"]
+    assert 'refresh_token=""' in cookie
+    assert "HttpOnly" in cookie
+    assert "Max-Age=0" in cookie
+    assert "Path=/auth/refresh" in cookie
+    assert "SameSite=lax" in cookie
+
+
+def test_logout_rejects_disallowed_origin_without_clearing_cookie() -> None:
+    response = client.post(
+        "/auth/logout",
+        headers={"Origin": "https://attacker.example"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert "set-cookie" not in response.headers
+
+
 def test_protected_routes_use_standard_unauthenticated_error() -> None:
     for path in ("/auth/me", "/users"):
         response = client.get(path)
@@ -151,6 +190,7 @@ def test_openapi_exposes_m2_routes_and_bearer_security() -> None:
         "/auth/register-business",
         "/auth/login",
         "/auth/refresh",
+        "/auth/logout",
         "/auth/me",
         "/users",
     }

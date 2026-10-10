@@ -9,8 +9,9 @@ migration, M2 provides verified JWT authentication plus tenant-scoped Admin user
 M3 provides verified reusable role and ticket-resource authorization policies. M4 provides
 verified Ticket REST workflows for creation, scoped listing/detail, assignment, and status
 lifecycle management. M5 provides verified persistent message history and authenticated,
-ticket-scoped WebSocket chat with post-commit message and status events. The product frontend is
-not implemented yet.
+ticket-scoped WebSocket chat with post-commit message and status events. M6 Phase 2 provides the
+implemented Next.js authentication, Ticket, real-time chat, and Admin Team interfaces; full browser
+integration verification remains pending Phase 3.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
@@ -34,7 +35,7 @@ Use the backend section of [`.env.example`](.env.example) to create an ignored `
 CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
-Wildcard origins are not supported because the browser authentication design uses credentials. Access tokens are returned for in-memory frontend use. Login also places the refresh token in an HttpOnly cookie with `SameSite=Lax`, `Path=/auth/refresh`, and environment-controlled `Secure`. Browser refresh requests with an `Origin` header are checked against `CORS_ORIGINS`.
+Wildcard origins are not supported because the browser authentication design uses credentials. Access tokens are returned for in-memory frontend use. Login also places the refresh token in an HttpOnly cookie with `SameSite=Lax`, `Path=/auth/refresh`, and environment-controlled `Secure`. Browser refresh and logout requests with an `Origin` header are checked against `CORS_ORIGINS`. Logout expires that cookie and the frontend clears its in-memory access token; stateless JWT copies are not revoked server-side.
 
 ## Backend Setup
 
@@ -55,6 +56,7 @@ M2 endpoints are:
 - `POST /auth/register-business`
 - `POST /auth/login`
 - `POST /auth/refresh`
+- `POST /auth/logout`
 - `GET /auth/me`
 - `GET /users`
 - `POST /users`
@@ -114,21 +116,28 @@ restrictions as authorization controls.
 Run from `frontend/`:
 
 ```bash
-npm install
+npm ci
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
-The foundation page is available at `http://127.0.0.1:3000/`.
+The frontend is available at `http://127.0.0.1:3000/`. It requires the FastAPI backend at the
+`NEXT_PUBLIC_API_URL` configured in `frontend/.env.local`. Required routes are `/login`, `/register`,
+`/tickets`, `/tickets/new`, `/tickets/[id]`, and `/admin/users`.
 
 Frontend validation commands:
 
 ```bash
 npm run lint
 npm run typecheck
+npm test
 npm run build
+npm audit --omit=dev
 ```
 
-The production build intentionally uses Next.js's webpack builder. In the M0 execution environment, the default Turbopack production worker could not bind its internal port; the webpack build completed successfully.
+M6 Phase 2 verified the clean install, lint, strict typecheck, three focused domain tests, production
+webpack build, production dependency audit, and HTTP route startup smoke test. The full role,
+tenant-isolation, responsive, and two-browser WebSocket matrix remains pending Phase 3. The
+production build intentionally uses Next.js's webpack builder.
 
 ## Technical Decisions
 
@@ -146,6 +155,9 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 - M5 keeps WebSocket authentication and Ticket authorization database-backed, uses short-lived
   sessions for handshake and send operations, persists each Message with the Ticket activity
   timestamp before broadcasting, and isolates connections by Ticket room.
+- M6 keeps bearer access tokens in memory, restores sessions through the credentialed HttpOnly
+  refresh cookie, centralizes typed REST errors, and loads persisted Ticket history before opening
+  one native WebSocket per mounted Ticket detail view.
 - Mandatory security and functional flows take priority over optional infrastructure and UI polish.
 
 ## Known Limitations
@@ -174,5 +186,5 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 | M3 | Comprehensive tenant-authorization audit and isolation tests | Complete |
 | M4 | Ticket management | Complete |
 | M5 | WebSocket chat | Complete |
-| M6 | Required frontend flows | Not started |
+| M6 | Required frontend flows | Phase 2 implemented; Phase 3 verification pending |
 | M7 | Final tests, seed data, documentation, and demo preparation | Not started |
