@@ -2,7 +2,7 @@
 
 ## Status
 
-PLANNED — Phase 1 review complete; implementation requires explicit Phase 2 approval.
+IMPLEMENTED, PENDING PHASE 3 VERIFICATION
 
 Planning date: 2026-10-10
 
@@ -638,3 +638,82 @@ M5 is done only after explicit Phase 2 implementation approval and subsequent ve
 - No frontend/M6 work, optional infrastructure, automatic commit, or push has occurred.
 
 Phase 1 stops here and waits for review.
+
+## 20. Phase 2 Implementation Record
+
+Implementation date: 2026-10-10
+
+Phase status: **IMPLEMENTED, PENDING PHASE 3 VERIFICATION**. This plan remains in `active/`; no M6
+work, commit, or push was performed.
+
+### Implemented scope
+
+- Added strict message/history and WebSocket event schemas, including trimmed 1–5,000-character
+  bodies and forbidden client-supplied extra identity fields.
+- Added tenant- and owner-authorized chronological message history at
+  `GET /tickets/{id}/messages`.
+- Added the pre-accept authenticated and origin-checked
+  `WS /ws/tickets/{id}?token=<access-token>` endpoint.
+- Added a single-process Ticket-room connection manager with failed-peer and empty-room cleanup.
+- Added per-send token/User/Ticket authorization revalidation, Agent/Customer write policy,
+  Admin read-only behavior, current closed-Ticket rejection, Ticket row locking, and atomic
+  Message/activity timestamp persistence before broadcast.
+- Added post-commit `ticket.status_changed` delivery for meaningful M4 status transitions.
+- Added focused schema, manager, HTTP history, live WebSocket, persistence, isolation, role,
+  closed-Ticket, and status-broadcast tests. No migration or dependency was added.
+
+### Files created or modified
+
+- Modified `backend/app/api/dependencies.py`, `backend/app/api/router.py`,
+  `backend/app/api/routes/tickets.py`, `backend/app/db/session.py`, and
+  `backend/app/services/tickets.py`.
+- Created `backend/app/api/routes/websocket.py`, `backend/app/schemas/message.py`,
+  `backend/app/services/messages.py`, `backend/app/websocket/__init__.py`,
+  `backend/app/websocket/events.py`, and `backend/app/websocket/manager.py`.
+- Created `backend/tests/test_messages.py`, `backend/tests/test_websocket_chat.py`, and
+  `backend/tests/test_websocket_manager.py`.
+- Updated this execution record and `README.md` with verified behavior and the one-worker command.
+
+### Actual validation results
+
+- **PASS** — focused M5 suite: `14 passed, 1 warning in 0.60s`.
+- **PASS** — corrected M2-M4 regression selection with both `TEST_DATABASE_URL` and legacy
+  `M1_TEST_DATABASE_URL` set to `helpdesk_m5_test`: `112 passed, 1 warning in 3.37s`.
+- **PASS** — complete backend suite with both test URL variables: `126 passed, 1 warning in 3.47s`.
+- **PASS** — the exact credential-redacting guarded full-suite command now documented in README:
+  `126 passed, 1 warning in 3.59s`.
+- **PASS** — `python -m compileall -q app alembic tests`.
+- **PASS** — Ruff format check: `51 files already formatted`.
+- **PASS** — Ruff lint: `All checks passed!`.
+- **PASS** — strict mypy: `Success: no issues found in 49 source files`.
+- **PASS** — Alembic reports one head: `a3930ac451be (head)`.
+- **PASS** — guarded `alembic check` on `helpdesk_m5_test`: `No new upgrade operations detected.`
+- **PASS** — verified one-worker startup on port 8015 and `GET /health`: HTTP 200 with
+  `{"status":"ok"}`; the temporary server shut down normally.
+- **WARNING** — pytest reports the existing Starlette TestClient/httpx deprecation warning; it
+  does not fail the suite and no unnecessary dependency change was made.
+
+Two setup/configuration failures were resolved and retained here for accuracy:
+
+- The first disposable migration wrapper populated settings before replacing `DATABASE_URL`, so
+  Alembic used the cached development URL and the focused suite then reported eight missing-table
+  setup errors (six unit tests passed). The wrapper was corrected to set the disposable URL and
+  clear the settings cache before importing Alembic; upgrade then created the test schema and the
+  focused suite passed 14 tests. No development downgrade or schema mutation occurred.
+- The first regression invocation set only `TEST_DATABASE_URL`; 86 tests passed and 26 M1 model
+  tests refused to run because they require `M1_TEST_DATABASE_URL`. Re-running with both variables
+  pointing to the same guarded `_test` database passed all 112 selected tests.
+
+### Remaining Phase 3 work and limitations
+
+- Phase 3 must perform the comprehensive security/concurrency matrix from Section 15, including
+  expired/deleted-user handshakes, malformed frames, forced commit failures, reconnect recovery,
+  negative cross-room delivery, concurrent close/send behavior, and exact no-event assertions.
+- The connection manager is intentionally process-local; run exactly one worker. Multi-process
+  fan-out requires infrastructure outside M5 scope.
+- An idle revoked/deleted User socket can remain connected and receive room broadcasts until it
+  disconnects; every sensitive send is revalidated against the current database state.
+- Broadcast is best-effort after commit. A process failure in the commit/broadcast gap does not
+  lose the stored Message, but clients may need history reload to observe it.
+- Access tokens remain in the approved WebSocket query parameter shape and can be exposed by
+  upstream URL logging; production must use WSS and redact complete WebSocket URLs.

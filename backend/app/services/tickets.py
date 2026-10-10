@@ -1,6 +1,7 @@
 """Tenant-scoped ticket workflows."""
 
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -20,6 +21,12 @@ NORMAL_STATUS_TRANSITIONS = {
     TicketStatus.IN_PROGRESS: TicketStatus.RESOLVED,
     TicketStatus.RESOLVED: TicketStatus.CLOSED,
 }
+
+
+@dataclass(frozen=True)
+class TicketUpdateResult:
+    ticket: Ticket
+    status_changed: bool
 
 
 def list_tickets(
@@ -89,6 +96,16 @@ def update_ticket(
     current_user: User,
     payload: TicketUpdateRequest,
 ) -> Ticket:
+    """Compatibility wrapper returning the updated Ticket."""
+    return update_ticket_with_result(db, ticket_id, current_user, payload).ticket
+
+
+def update_ticket_with_result(
+    db: Session,
+    ticket_id: uuid.UUID,
+    current_user: User,
+    payload: TicketUpdateRequest,
+) -> TicketUpdateResult:
     """Apply authorized assignment/status operations in one locked transaction."""
     try:
         ticket = get_authorized_ticket(
@@ -152,7 +169,7 @@ def update_ticket(
         db.commit()
         db.refresh(ticket)
         _load_ticket_identities(ticket)
-        return ticket
+        return TicketUpdateResult(ticket=ticket, status_changed=status_changes)
     except Exception:
         db.rollback()
         raise

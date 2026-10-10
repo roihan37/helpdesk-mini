@@ -8,8 +8,9 @@ M0 provides the project foundation, M1 provides the PostgreSQL domain models and
 migration, M2 provides verified JWT authentication plus tenant-scoped Admin user management, and
 M3 provides verified reusable role and ticket-resource authorization policies. M4 provides
 verified Ticket REST workflows for creation, scoped listing/detail, assignment, and status
-lifecycle management. Message-history APIs, WebSocket chat, and the product frontend are not
-implemented yet.
+lifecycle management. M5 Phase 2 provides persistent message history and authenticated,
+ticket-scoped WebSocket chat; comprehensive Phase 3 verification is still pending. The product
+frontend is not implemented yet.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
@@ -44,7 +45,7 @@ uv sync --all-groups
 uv run python -m app.db.check
 uv run alembic upgrade head
 uv run alembic heads
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 The intentionally public health endpoint is available at `http://127.0.0.1:8000/health` and returns only `{"status":"ok"}`. Swagger UI is available at `http://127.0.0.1:8000/docs`.
@@ -64,6 +65,13 @@ M4 Ticket endpoints are:
 - `POST /tickets`
 - `GET /tickets/{id}`
 - `PATCH /tickets/{id}`
+- `GET /tickets/{id}/messages`
+
+M5 WebSocket chat is available at
+`WS /ws/tickets/{id}?token=<access-token>`. Browser connections must send an `Origin` that exactly
+matches `CORS_ORIGINS`. Agent and owning Customer connections may send `message.send`; Admin
+connections are read-only. The server emits `message.created`, `ticket.status_changed`, and
+sanitized `error` events.
 
 These endpoints require access-token authentication. Ticket queries are tenant-scoped, Customer
 access is ownership-scoped, and inaccessible cross-tenant or cross-Customer ticket IDs return 404.
@@ -86,14 +94,14 @@ that URL without printing credentials. Never run these tests against a developme
 database.
 
 ```bash
-UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m4_test'); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m5_test'); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
 ```
 
-The M4 final review ran that guarded command against the disposable `helpdesk_m4_test` database:
-112 tests passed with no failures and one pre-existing TestClient deprecation warning. The focused
-M4 suite passed 36 tests, the M1-M3 regression selection passed 76 tests, and compile/import, Ruff
-lint/format, strict mypy, single-head Alembic, and schema-drift checks also passed. Exact commands
-and results are recorded in the completed M4 execution plan.
+M5 Phase 2 ran the equivalent guarded setup against the disposable `helpdesk_m5_test` database.
+The focused M5 suite passed 14 tests, the M2-M4 regression selection passed 112 tests, and the full
+backend suite passed 126 tests. Compile/import, Ruff lint/format, strict mypy, single-head Alembic,
+schema-drift, and a one-worker health smoke check also passed. One upstream TestClient deprecation
+warning remains. Exact commands and results are recorded in the active M5 execution plan.
 
 ## Frontend Setup
 
@@ -129,6 +137,9 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 - M4 keeps Ticket routers thin and applies creation, list, detail, assignment, lifecycle, rollback,
   and PostgreSQL row-lock rules in the service layer. Ticket creation persists the first Message
   in the same transaction, while competing Agent claims are serialized on the Ticket row.
+- M5 keeps WebSocket authentication and Ticket authorization database-backed, uses short-lived
+  sessions for handshake and send operations, persists each Message with the Ticket activity
+  timestamp before broadcasting, and isolates connections by Ticket room.
 - Mandatory security and functional flows take priority over optional infrastructure and UI polish.
 
 ## Known Limitations
@@ -136,9 +147,11 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 - Refresh tokens are stateless and are not rotated or immediately revocable in M2.
 - Refresh-cookie headers and CORS behavior are covered by TestClient, but persistence and
   SameSite/Secure behavior have not been manually verified in a real browser deployment.
-- M4 provides Ticket REST management only. Message history, additional message creation,
-  closed-ticket message rejection, WebSocket authorization/chat, and status broadcasts remain deferred
-  to M5 and have not been verified.
+- M5 uses an in-memory connection manager and must run with one backend worker. Live delivery does
+  not span processes or instances, and a crash after database commit but before broadcast can
+  delay visibility until message history is reloaded.
+- Idle WebSocket connections are not continuously reauthenticated. Authentication, current User,
+  role, tenant/ownership access, and Ticket status are revalidated on each message send.
 - Same-business Customer/assignee integrity cannot be fully expressed by the existing foreign keys
   and remains an application-service invariant. Future Ticket writers must follow the same row-lock
   discipline used by M4 for competing state changes.
@@ -154,6 +167,6 @@ The production build intentionally uses Next.js's webpack builder. In the M0 exe
 | M2 | JWT authentication and securely scoped business user management | Complete |
 | M3 | Comprehensive tenant-authorization audit and isolation tests | Complete |
 | M4 | Ticket management | Complete |
-| M5 | WebSocket chat | Not started |
+| M5 | WebSocket chat | Phase 2 implemented; Phase 3 verification pending |
 | M6 | Required frontend flows | Not started |
 | M7 | Final tests, seed data, documentation, and demo preparation | Not started |

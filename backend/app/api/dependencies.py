@@ -43,8 +43,13 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    return resolve_current_user(credentials.credentials, db)
+
+
+def resolve_current_user(token: str, db: Session) -> User:
+    """Resolve a raw access token for HTTP or WebSocket authentication."""
     try:
-        identity = decode_token(credentials.credentials, expected_type="access")
+        identity = decode_token(token, expected_type="access")
     except TokenValidationError as error:
         raise _token_error(error) from error
 
