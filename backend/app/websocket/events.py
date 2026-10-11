@@ -31,7 +31,9 @@ from app.websocket.manager import connection_manager
 logger = logging.getLogger(__name__)
 
 
-async def broadcast_message_created(session_factory: sessionmaker[Session], message: MessagePublic) -> None:
+async def broadcast_message_created(
+    session_factory: sessionmaker[Session], message: MessagePublic
+) -> None:
     await _broadcast_room_event(
         session_factory, message.ticket_id,
         MessageCreatedEvent(data=message).model_dump(mode="json"),
@@ -60,11 +62,10 @@ async def broadcast_ticket_list_event(
         subscriptions: dict[WebSocket, str],
     ) -> tuple[set[WebSocket], set[WebSocket]]:
         return await run_in_threadpool(
-            _list_recipients,
+            _ticket_list_recipients,
             session_factory,
             subscriptions,
-            business_id,
-            customer_id,
+            ticket_id,
             recipient_user_id,
         )
 
@@ -75,6 +76,27 @@ async def broadcast_ticket_list_event(
     except Exception:
         # The committed operation remains successful; reconnect refetch recovers gaps.
         logger.exception("Ticket-list notification delivery failed")
+
+
+def _ticket_list_recipients(
+    session_factory: sessionmaker[Session],
+    subscriptions: dict[WebSocket, str],
+    ticket_id: uuid.UUID,
+    recipient_user_id: uuid.UUID | None,
+) -> tuple[set[WebSocket], set[WebSocket]]:
+    # A queued event's original ownership may no longer be current at delivery.
+    with session_factory() as db:
+        ticket = db.get(Ticket, ticket_id)
+        if ticket is None:
+            return set(), set()
+        business_id, customer_id = ticket.business_id, ticket.customer_id
+    return _list_recipients(
+        session_factory,
+        subscriptions,
+        business_id,
+        customer_id,
+        recipient_user_id,
+    )
 
 
 def _list_recipients(
@@ -136,7 +158,9 @@ def _room_recipients(
     recipients = set()
     for websocket in eligible:
         try:
-            user_id = decode_token(subscriptions[websocket], expected_type="access").user_id
+            user_id = decode_token(
+                subscriptions[websocket], expected_type="access"
+            ).user_id
         except TokenValidationError:
             invalid.add(websocket)
             continue
@@ -191,7 +215,9 @@ async def broadcast_typing(
         logger.exception("Typing notification delivery failed")
 
 
-def _typing_source_allowed(session_factory: sessionmaker[Session], data: TypingData) -> bool:
+def _typing_source_allowed(
+    session_factory: sessionmaker[Session], data: TypingData
+) -> bool:
     with session_factory() as db:
         user = db.get(User, data.user_id)
         if user is None or user.role not in {UserRole.AGENT, UserRole.CUSTOMER}:
@@ -215,7 +241,8 @@ def _read_receipt(
         except AppError:
             return None
         sequence = db.scalar(select(TicketReadState.last_read_sequence).where(
-            TicketReadState.ticket_id == ticket_id, TicketReadState.user_id == reader.id,
+            TicketReadState.ticket_id == ticket_id,
+            TicketReadState.user_id == reader.id,
         ))
         if sequence is None:
             return None
@@ -235,17 +262,21 @@ async def broadcast_message_read(
     # Called only after a changed, committed read cursor. Re-read persistent state;
     # client-supplied reader identities/cursors are never accepted over WebSocket.
     try:
-        receipt = await run_in_threadpool(_read_receipt, session_factory, ticket_id, reader_id)
+        receipt = await run_in_threadpool(
+            _read_receipt, session_factory, ticket_id, reader_id
+        )
         if receipt is not None:
             event, senders = receipt
             await _broadcast_room_event(
-                session_factory, ticket_id, event.model_dump(mode="json"), audience=senders,
+                session_factory, ticket_id, event.model_dump(mode="json"),
+                audience=senders,
             )
     except Exception:
         logger.exception("Read-receipt delivery failed")
 
 
 async def broadcast_ticket_status_changed(
+    session_factory: sessionmaker[Session],
     ticket_id: uuid.UUID,
     status: TicketStatus,
     updated_at: datetime,
@@ -259,4 +290,8 @@ async def broadcast_ticket_status_changed(
             updated_at=updated_at,
         )
     )
-    await connection_manager.broadcast(ticket_id, event.model_dump(mode="json"))
+    await _broadcast_room_event(
+        session_factory,
+        ticket_id,
+        event.model_dump(mode="json"),
+    )

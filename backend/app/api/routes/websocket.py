@@ -17,7 +17,6 @@ from app.core.errors import AppError
 from app.db.session import get_session_factory
 from app.models import TicketStatus, UserRole
 from app.schemas.message import (
-    MessageCreatedEvent,
     MessagePublic,
     MessageSendEvent,
     TypingData,
@@ -27,7 +26,11 @@ from app.schemas.message import (
 )
 from app.services.authorization import get_authorized_ticket
 from app.services.messages import create_message
-from app.websocket.events import broadcast_ticket_list_event, broadcast_typing
+from app.websocket.events import (
+    broadcast_message_created,
+    broadcast_ticket_list_event,
+    broadcast_typing,
+)
 from app.websocket.manager import connection_manager
 
 logger = logging.getLogger(__name__)
@@ -140,8 +143,12 @@ async def ticket_chat(
                             _authorize_typing, session_factory, token, ticket_id,
                         )
 
-                        async def publish(event_type: str, identity: TypingData = data) -> None:
-                            await broadcast_typing(session_factory, event_type, identity)
+                        async def publish(
+                            event_type: str, identity: TypingData = data
+                        ) -> None:
+                            await broadcast_typing(
+                                session_factory, event_type, identity
+                            )
 
                         await connection_manager.start_typing(
                             ticket_id, websocket, data.user_id, publish,
@@ -183,11 +190,8 @@ async def ticket_chat(
                 await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
                 break
 
-            created = MessageCreatedEvent(data=message)
             await connection_manager.stop_typing(ticket_id, websocket)
-            await connection_manager.broadcast(
-                ticket_id, created.model_dump(mode="json")
-            )
+            await broadcast_message_created(session_factory, message)
             await broadcast_ticket_list_event(
                 session_factory,
                 "ticket.message_created",
@@ -239,8 +243,12 @@ def _authorize_typing(
         ticket = get_authorized_ticket(db, ticket_id, user)
         require_roles(user, {UserRole.AGENT, UserRole.CUSTOMER})
         if ticket.status == TicketStatus.CLOSED:
-            raise AppError(status_code=409, code="TICKET_CLOSED", message="Ticket is closed.")
-        return TypingData(ticket_id=ticket_id, user_id=user.id, name=user.name, role=user.role)
+            raise AppError(
+                status_code=409, code="TICKET_CLOSED", message="Ticket is closed."
+            )
+        return TypingData(
+            ticket_id=ticket_id, user_id=user.id, name=user.name, role=user.role
+        )
 
 
 async def _send_error(

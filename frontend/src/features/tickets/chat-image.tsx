@@ -22,9 +22,12 @@ export function ChatImage({ ticketId, attachment }: {
     const controller = new AbortController();
     let active = true;
     let objectUrl = "";
-    setLoaded(false);
-    setUrl("");
-    setError("");
+    queueMicrotask(() => {
+      if (!active) return;
+      setLoaded(false);
+      setUrl("");
+      setError("");
+    });
     const unsubscribe = onAccessTokenChanged((token) => {
       if (token === null) {
         active = false;

@@ -137,10 +137,10 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
   const read = useTicketRead(ticket.id, currentUserId, messages, messagesReady, listRef);
   const [showNew, setShowNew] = useState(false);
   useEffect(() => {
-    if (!image) { setPreview(""); return; }
-    const url = URL.createObjectURL(image);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
+    let active = true;
+    const url = image ? URL.createObjectURL(image) : "";
+    queueMicrotask(() => { if (active) setPreview(url); });
+    return () => { active = false; URL.revokeObjectURL(url); };
   }, [image]);
   useEffect(() => {
     const unsubscribe = onAccessTokenChanged((token) => {
@@ -148,9 +148,16 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
     });
     return () => { upload.current?.abort(); unsubscribe(); };
   }, []);
+  const stopTyping = socket.stopTyping;
   useEffect(() => {
-    if (!canSend) { upload.current?.abort(); setImage(null); socket.stopTyping(); }
-  }, [canSend, socket.stopTyping]);
+    let active = true;
+    if (!canSend) {
+      upload.current?.abort();
+      stopTyping();
+      queueMicrotask(() => { if (active) setImage(null); });
+    }
+    return () => { active = false; };
+  }, [canSend, stopTyping]);
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;

@@ -27,8 +27,10 @@ from app.main import app
 from app.models import (
     Business,
     Message,
+    MessageAttachment,
     Ticket,
     TicketPriority,
+    TicketReadState,
     TicketStatus,
     User,
     UserRole,
@@ -160,6 +162,10 @@ def scenario(session_factory: sessionmaker[Session]) -> Iterator[ChatScenario]:
                 )
             )
         )
+        db.execute(delete(TicketReadState).where(TicketReadState.ticket_id.in_(ticket_ids)))
+        db.execute(delete(MessageAttachment).where(MessageAttachment.message_id.in_(
+            select(Message.id).where(Message.ticket_id.in_(ticket_ids))
+        )))
         db.execute(delete(Message).where(Message.ticket_id.in_(ticket_ids)))
         db.execute(delete(Ticket).where(Ticket.id.in_(ticket_ids)))
         db.execute(delete(User).where(User.id.in_(user_ids)))
@@ -270,12 +276,15 @@ def test_history_is_ordered_and_enforces_viewer_scope(
     ]
     assert set(owner_response.json()["data"][0]) == {
         "id",
+        "sequence",
         "ticket_id",
         "sender_id",
         "sender_name",
         "sender_role",
         "body",
         "created_at",
+        "read_by",
+        "attachment",
     }
     assert other_customer_response.status_code == 404
     assert cross_tenant_response.status_code == 404
@@ -915,13 +924,18 @@ def test_list_message_event_matches_persistence_and_paginated_activity(
     assert message["type"] == "message.created"
     assert history.status_code == tickets.status_code == 200
     assert history.json()["data"][-1] == message["data"]
+    # Both contracts allow ISO 8601 offsets; PostgreSQL may use its session zone.
+    event_timestamp = event["data"]["updated_at"]
     assert event == {
         "type": "ticket.message_created",
         "data": {
             "ticket_id": str(scenario.open_ticket.id),
-            "updated_at": tickets.json()["data"][0]["updated_at"],
+            "updated_at": event_timestamp,
         },
     }
+    assert datetime.fromisoformat(event_timestamp) == datetime.fromisoformat(
+        tickets.json()["data"][0]["updated_at"]
+    )
     assert tickets.json()["pagination"] == {
         "page": 1,
         "page_size": 1,

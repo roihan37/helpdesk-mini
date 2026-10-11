@@ -847,3 +847,132 @@ The following evidence is required before M7 can be marked complete:
 
 M7 remains active and is **not complete**. Phase 4 is audited and the milestone is
 **PENDING VERIFICATION** until the outstanding final evidence recorded above is supplied.
+
+## 13. Pre-deployment B5–B7 security hardening and automated verification
+
+Date: 2026-10-12. Scope: the separately authorized pre-deployment audit, not deployment or
+milestone closure. M7 remains active / PENDING VERIFICATION.
+
+### Environment and safety
+
+- Reused existing pytest/FastAPI/PostgreSQL fixtures and frontend Node domain-test patterns.
+  No dependency, migration, API contract, demo-seed, or UI design changes were required.
+- Checked that `helpdesk_bonuses_test` did not exist before creating this disposable database.
+  Its `_test` name is enforced by the existing destructive-test guards. Valuable `HelpdeskDB`
+  and existing Docker volumes were not reset or modified. Test cleanup affects only test data.
+- Fresh upgrade ran all migrations through `c7e4a682d193`. Tests use temporary private local
+  upload roots and mocked AWS clients; no real AWS request was made.
+- No commit, push, deployment, or milestone completion was performed.
+
+### Findings and fixes
+
+| Finding | Classification | Evidence / resolution |
+| --- | --- | --- |
+| Status delivery skipped current recipient authorization | CONFIRMED, fixed | New regression first failed (1 FAIL / 1 PASS). `broadcast_ticket_status_changed` now uses the existing fresh DB/JWT-authorized room delivery helper. |
+| Text-message route used raw room broadcast | CONFIRMED, fixed | Actual route inspection plus stale-session integration regressions; route now calls `broadcast_message_created`, retaining persisted message payload and room behavior. |
+| Queued ticket-list events trusted old business/customer ownership | CONFIRMED, fixed | New regression first failed (1 FAIL / 2 PASS). Reload current Ticket ownership before recipient selection; vanished/inaccessible recipients are removed. |
+| Cross-tenant/customer leaks in exercised unread/receipt/attachment paths | NOT REPRODUCED after fixes | Real FastAPI/PostgreSQL 404/denial coverage, independent counts/receipts, and stale-session delivery rejection. This is scoped evidence, not proof of all possible races. |
+| Demo seed overwrites existing or partial data | NOT REPRODUCED | Existing seed/startup code and full regression suite: unchanged expected identities preserve existing data, partial nonempty initialization refuses; no seed source change needed. |
+| Tracked real credentials / obvious key material | NOT REPRODUCED in limited current-tree scan | Redacted tracked-file review found no actual `.env`, generated/upload files, AWS key/private-key/JWT candidates. `.env.example` DB/JWT assignments are local placeholders, AWS credential fields empty. Full historical scanning NOT RUN. |
+| Browser integration, Docker runtime, real S3 IAM/private bucket | NEEDS MANUAL VERIFICATION | Browser E2E not executed; Docker daemon unavailable; AWS intentionally mocked. |
+
+Delivery reauthorization covers changed roles, business membership, customer ownership, removed
+accounts, invalid/refresh/expired tokens. Stale connections close with policy violation 1008
+and are cleaned up. The DB authorization check and socket send are not atomic: a narrow
+check-to-send race remains. Process-local/best-effort events require one worker and REST recovery.
+
+### Automated coverage added / repaired
+
+- New `backend/tests/test_chat_bonuses.py`: 34 actual FastAPI/PostgreSQL tests for unread
+  persistence, independent monotonic read cursors, authorization and observed boundaries,
+  concurrent readers/writer, paginated search/filter totals, recipient-specific history/receipts,
+  typing permissions/payload validation, stale-session delivery of five event types, and image
+  upload/download/persistence/metadata/denial/malformed/oversized cases.
+- New `backend/tests/test_event_delivery.py`: 10 focused delivery tests for current DB/JWT
+  authorization, revoked-recipient cleanup, typing/receipt audiences, and queued ownership.
+- New `backend/tests/test_attachment_storage.py`: 28 canonical-image/private-local/mocked-S3
+  tests including exclusive writes, symlinks/traversal, bounded stream cleanup, definite rollback
+  cleanup, ambiguous commit retention, and storage errors without false DB success.
+- `backend/tests/test_websocket_manager.py`: two deterministic expiry/race/multi-tab cleanup
+  regressions using controlled async futures, not real sleeps.
+- Existing `test_models.py` expectations now include B5/B7 constraints. Existing WebSocket fixture
+  cleanup and strict message-history expectations include read state and attachment metadata.
+- Initial full-suite run: 276 PASS / 1 FAIL (existing status assertion compared UTC `Z` with
+  equivalent PostgreSQL `+07:00` text). It now compares parsed instants while preserving strict
+  event type, IDs, keys, status and payload assertions; the ISO-8601 contract is unchanged.
+- Frontend domain tests add four cases: BIGINT precision, recipient-specific receipt merging,
+  author-only receipt exposure, and history/socket deduplication including attachments.
+- Four frontend ESLint errors / two hook warnings were fixed minimally: cancellable microtask
+  state resets, stable effect dependencies and captured cleanup refs. No UI redesign or new
+  component behavior was introduced. Import/line wrapping in touched backend files fixes the
+  additional Ruff findings (14 pre-existing long-line findings remained after import fixes).
+
+### Commands and actual results
+
+Backend commands below ran from `backend/` with `DATABASE_URL`, `TEST_DATABASE_URL`, and
+`M1_TEST_DATABASE_URL` all targeting only `helpdesk_bonuses_test`, plus a test-only JWT secret.
+Do not run destructive fixtures against a valuable database. The executed runner derives the
+connection credentials in memory from existing settings, changes only the database name, and
+does not print the URL:
+
+```bash
+.venv/bin/python -c 'import os,subprocess; from app.core.config import get_settings; from sqlalchemy.engine import make_url; u=make_url(get_settings().database_url).set(database="helpdesk_bonuses_test").render_as_string(hide_password=False); env=dict(os.environ,DATABASE_URL=u,TEST_DATABASE_URL=u,M1_TEST_DATABASE_URL=u,JWT_SECRET="local-test-only-secret-with-more-than-32-characters"); subprocess.run([".venv/bin/pytest","-q"],env=env,check=True)'
+```
+
+The disposable database must already exist. The targeted run uses the same wrapper with the
+five paths below appended to the pytest argument list. PostgreSQL calls required sandbox-approved
+execution; no restriction was bypassed.
+
+| Command / check | Actual result |
+| --- | --- |
+| `uv sync --frozen --group dev` | PASS, existing lock/dependencies only |
+| `.venv/bin/alembic upgrade head` with the isolated environment above | PASS, fresh test database upgraded through B5/B7 head |
+| `.venv/bin/pytest -q tests/test_chat_bonuses.py tests/test_event_delivery.py tests/test_attachment_storage.py tests/test_websocket_manager.py tests/test_start_demo.py` | PASS: 84 passed, 0 failed, one Starlette deprecation warning; subset of full suite |
+| `.venv/bin/pytest -q` via runner above | PASS: 285 passed, 0 failed, one Starlette deprecation warning; includes auth/tenant/ticket/WebSocket/seed/migration regressions |
+| `.venv/bin/ruff check app/api/routes/tickets.py app/api/routes/websocket.py app/websocket/events.py tests/test_models.py tests/test_websocket_chat.py tests/test_websocket_manager.py tests/test_chat_bonuses.py tests/test_event_delivery.py tests/test_attachment_storage.py` | PASS; initial import/long-line findings corrected without logic changes |
+| Frontend `npm run typecheck && npm run lint && npm test && npm run build` | PASS: TypeScript, ESLint, 26 tests / 0 failures, production build; existing Node module-type warning |
+| `docker compose --profile test run --build --rm tests` | Attempted, exit 1: cannot connect to Docker daemon at local docker.sock. Container tests NOT RUN, not a test assertion failure |
+| `git status --short`, `git diff --check`, `git diff --stat`, tracked-file review, `git log -5 --format='%h %s'` | Executed; scoped edits, whitespace check PASS, recent history inspected |
+| Redacted tracked-content scan for credential assignments, recognizable AWS/private-key/JWT patterns | PASS for inspected current-tree patterns; placeholders reviewed, no values printed |
+| Real browser E2E, real S3 access, Docker fresh startup/restart/test isolation | NOT RUN |
+| Populated migration backfill, disposable downgrade/re-upgrade, measured 15-minute fresh setup, full history secret scan, whole-repository mypy/Ruff formatting | NOT RUN in this audit; do not substitute previous or build evidence |
+
+### Files changed
+
+- Security: `backend/app/api/routes/tickets.py`, `backend/app/api/routes/websocket.py`,
+  `backend/app/websocket/events.py`.
+- Backend tests: the three new test modules above and `backend/tests/test_models.py`,
+  `backend/tests/test_websocket_chat.py`, `backend/tests/test_websocket_manager.py`.
+- Frontend lint/domain coverage: `frontend/src/features/tickets/chat-image.tsx`,
+  `frontend/src/features/tickets/ticket-detail.tsx`, `frontend/src/hooks/use-ticket-socket.ts`,
+  `frontend/src/lib/domain.test.ts`.
+- Evidence: this plan, `docs/UNREAD_VERIFICATION.md`, `docs/CHAT_PRESENCE_VERIFICATION.md`,
+  `docs/ATTACHMENT_VERIFICATION.md`. README and unrelated documents/source unchanged.
+
+### Final verification continuation / release decision
+
+**GO to final verification; NO-GO for deployment/submission approval on this evidence alone.**
+No confirmed tested P0 remains unresolved, but real-browser/Docker release evidence is missing.
+
+1. Start Docker Desktop, rerun exactly
+   `docker compose --profile test run --build --rm tests`, and verify its database remains separate
+   from the persistent demo DB. Never delete volumes to obtain a clean result.
+2. With an isolated backend/frontend/PostgreSQL instance, use separate Agent/Customer browser
+   profiles plus another Customer and business. Send text and each image format, reload history,
+   check unread independence, and view/scroll/mark-read boundaries including failed image loads.
+3. Type in multiple tabs; verify start/stop, expiry/disconnect, own-indicator exclusion and
+   Admin/closed-ticket denial. Verify sender-specific receipts across reconnect/logout/login and
+   that one reader is not presented as evidence of every recipient reading.
+4. While connected, revoke role/ownership, expire access tokens, and verify status/text/image/
+   typing/read events and ticket-list updates stop without cross-room/customer/tenant leakage.
+   Inspect requests/events without copying tokens into screenshots or logs.
+5. Verify chooser/preview/remove/keyboard/mobile/error states, cache cleanup and token refresh;
+   rerun existing mandatory two-browser chat/lifecycle flows. Record actual browser evidence.
+6. Complete disposable populated migration/backfill/downgrade checks, history secret review and
+   measured README setup/demo rehearsal. Real S3 validation, if needed for deployment, must use
+   an explicitly authorized private test bucket, never production credentials/data.
+
+Known limitations remain documented: single-process best-effort delivery, unpaginated history,
+human attention cannot be proven, DB/object storage are not one transaction, no orphan GC,
+upload quota/scanner/upstream body-size limit or global abuse controls. No new infrastructure
+was introduced to conceal these trade-offs. Stop after this audit for user review.

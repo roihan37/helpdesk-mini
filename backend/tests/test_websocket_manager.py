@@ -104,3 +104,72 @@ def test_list_delivery_serializes_and_removes_failed_or_invalid_peers() -> None:
         assert manager._subscriptions == {}
 
     asyncio.run(scenario())
+
+
+def test_typing_expiry_is_deterministic_and_does_not_clear_newer_presence(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        manager = ConnectionManager()
+        ticket_id, user_id = uuid.uuid4(), uuid.uuid4()
+        socket = FakeWebSocket()
+        await manager.connect(ticket_id, socket)
+        pending: list[asyncio.Future] = []
+
+        async def controlled_sleep(seconds):
+            assert seconds == 5
+            future = asyncio.get_running_loop().create_future()
+            pending.append(future)
+            await future
+
+        monkeypatch.setattr("app.websocket.manager.asyncio.sleep", controlled_sleep)
+        emitted = []
+
+        async def publish(event):
+            emitted.append(event)
+
+        await manager.start_typing(ticket_id, socket, user_id, publish)
+        old = manager._typing[ticket_id][socket]
+        # Yield using a loop callback, not real time or the patched sleep.
+        ready = asyncio.get_running_loop().create_future()
+        asyncio.get_running_loop().call_soon(ready.set_result, None)
+        await ready
+        await manager.start_typing(ticket_id, socket, user_id, publish)
+        await manager.stop_typing(ticket_id, socket, expected=old)
+        assert await manager.is_typing(ticket_id, user_id)
+        current = manager._typing[ticket_id][socket]
+        ready = asyncio.get_running_loop().create_future()
+        asyncio.get_running_loop().call_soon(ready.set_result, None)
+        await ready
+        pending[-1].set_result(None)
+        await current.expiry
+        assert not await manager.is_typing(ticket_id, user_id)
+        assert emitted == ["typing.start", "typing.start", "typing.stop"]
+        await manager.disconnect(ticket_id, socket)
+        assert manager._typing == {}
+
+    asyncio.run(scenario())
+
+
+def test_typing_disconnect_keeps_other_session_until_last_disconnect() -> None:
+    async def scenario() -> None:
+        manager = ConnectionManager()
+        ticket_id, user_id = uuid.uuid4(), uuid.uuid4()
+        first, second = FakeWebSocket(), FakeWebSocket()
+        emitted = []
+
+        async def publish(event):
+            emitted.append(event)
+
+        for socket in [first, second]:
+            await manager.connect(ticket_id, socket)
+            await manager.start_typing(ticket_id, socket, user_id, publish)
+        await manager.disconnect(ticket_id, first)
+        assert await manager.is_typing(ticket_id, user_id)
+        assert emitted == ["typing.start", "typing.start"]
+        await manager.disconnect(ticket_id, second)
+        assert emitted == ["typing.start", "typing.start", "typing.stop"]
+        assert manager._typing == {}
+        assert manager._rooms == {}
+
+    asyncio.run(scenario())

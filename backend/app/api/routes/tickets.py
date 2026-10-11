@@ -1,7 +1,17 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import get_current_user
@@ -23,9 +33,9 @@ from app.schemas.ticket import (
     TicketReadResponse,
     TicketUpdateRequest,
 )
-from app.services.messages import list_messages
 from app.services.attachments import create_image_message, retrieve_image
 from app.services.authorization import get_authorized_ticket
+from app.services.messages import list_messages
 from app.services.ticket_reads import mark_ticket_read
 from app.services.tickets import (
     create_ticket,
@@ -44,8 +54,12 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 
 @router.post(
-    "/{ticket_id}/messages/attachment", response_model=MessageDataResponse, status_code=201,
-    responses={code: {"model": ErrorResponse} for code in (401, 403, 404, 409, 413, 422, 503)},
+    "/{ticket_id}/messages/attachment",
+    response_model=MessageDataResponse,
+    status_code=201,
+    responses={
+        code: {"model": ErrorResponse} for code in (401, 403, 404, 409, 413, 422, 503)
+    },
 )
 def upload_ticket_image(
     ticket_id: uuid.UUID,
@@ -56,7 +70,9 @@ def upload_ticket_image(
     image: Annotated[UploadFile, File()],
     caption: Annotated[str, Form(max_length=5000)] = "",
 ) -> MessageDataResponse:
-    message = create_image_message(db, session_factory, ticket_id, current_user, image, caption)
+    message = create_image_message(
+        db, session_factory, ticket_id, current_user, image, caption
+    )
     ticket = get_authorized_ticket(db, ticket_id, current_user)
     background_tasks.add_task(broadcast_message_created, session_factory, message)
     background_tasks.add_task(
@@ -215,7 +231,9 @@ def mark_ticket_conversation_read(
             recipient_user_id=current_user.id,
         )
     return TicketReadResponse(
-        data=TicketReadData(ticket_id=result.ticket_id, unread_count=result.unread_count)
+        data=TicketReadData(
+            ticket_id=result.ticket_id, unread_count=result.unread_count
+        )
     )
 
 
@@ -243,6 +261,7 @@ def update_ticket_record(
     if result.status_changed:
         background_tasks.add_task(
             broadcast_ticket_status_changed,
+            session_factory,
             ticket.id,
             TicketStatus(ticket.status),
             ticket.updated_at,

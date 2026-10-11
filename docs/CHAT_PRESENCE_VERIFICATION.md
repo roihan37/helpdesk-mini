@@ -1,8 +1,30 @@
-# B6 — Deferred Typing and Read-Receipt Verification
+# B6 — Typing and Read-Receipt Verification
 
-Status: NOT RUN. Implementation and static review only. No automated tests were created,
-modified, or executed; no lint, typecheck, build, browser E2E, or migration was run in this phase.
-Static inspection is not integration or security proof.
+Status (2026-10-12): **automated FastAPI/PostgreSQL verification PASS; browser verification NOT RUN**.
+The implementation-only deferral is superseded by this pre-deployment audit.
+
+## Executed evidence
+
+- `backend/tests/test_chat_bonuses.py`: real authorized WebSocket typing start/stop, no self echo,
+  malformed/spoofed events, Admin/closed-ticket denial, recipient-specific persistent history,
+  reconnect history, and independent readers. Real PostgreSQL-backed stale sessions that lose
+  ownership/role are rejected for message, attachment, status, typing, and read-receipt delivery.
+- `backend/tests/test_event_delivery.py`: current role/business/ownership/deletion/JWT checks,
+  recipient-specific receipt audiences, and cleanup on revoked authorization. A failing status
+  delivery regression confirmed raw broadcast bypassed reauthorization; status and text-message
+  routes now use the existing authorized delivery helpers.
+- `backend/tests/test_websocket_manager.py`: deterministic inactivity expiry without sleeps,
+  expiry/start race, and last-tab disconnect cleanup. Controlled async futures replace real timers.
+- Shared targeted run: **84 PASS, 0 FAIL**; full `.venv/bin/pytest -q`: **285 PASS, 0 FAIL**.
+  Frontend `npm test`: **26 PASS, 0 FAIL**, including BIGINT/receipt/deduplication regressions;
+  `npm run typecheck`, `npm run lint`, `npm run build`: PASS. These do not establish browser E2E.
+- Commands and isolated DB setup are in `exec-plans/active/M7-final-verification.md`, section 13.
+
+## Still NOT RUN / supplementary checklist
+
+Independent browser sessions, UI timing/visibility, mobile/keyboard behavior, token-refresh and
+logout interactions, and batched-query instrumentation remain manual verification items.
+The following checklist is supplementary, not a list of entirely executed checks.
 
 ## Preconditions
 
@@ -59,4 +81,5 @@ Static inspection is not integration or security proof.
 Presence and event delivery are single-process/in-memory and best-effort. REST history restores
 durable receipt evidence, not missed ephemeral typing. Per-connection typing throttling does not
 replace global connection abuse controls. History remains unpaginated. A visible-render acknowledgement
-cannot prove human attention. Runtime correctness and all integration/security checks remain unverified.
+cannot prove human attention. Browser integration remains unverified. Authorization is rechecked
+before delivery, but a narrow database-check/socket-send race remains; this is not atomic revocation.

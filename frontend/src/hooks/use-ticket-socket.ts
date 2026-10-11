@@ -98,7 +98,8 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
 
   useEffect(() => {
     let active = true;
-    setSending(false);
+    const receiptState = receipts.current;
+    queueMicrotask(() => { if (active) setSending(false); });
     pendingBody.current = null;
     async function connect() {
       if (!enabled || !active) return;
@@ -226,7 +227,7 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
       if (timerRef.current) clearTimeout(timerRef.current);
       stopTyping();
       clearTyping();
-      if (!getAccessToken()) receipts.current.clear();
+      if (!getAccessToken()) receiptState.clear();
       socketRef.current?.close(1000);
       socketRef.current = null;
     };

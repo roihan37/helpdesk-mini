@@ -101,6 +101,8 @@ def test_required_schema_columns_and_nullability(engine: Engine) -> None:
         "messages",
         "tickets",
         "users",
+        "ticket_read_states",
+        "message_attachments",
     }
 
     expected_nullability = {
@@ -128,10 +130,26 @@ def test_required_schema_columns_and_nullability(engine: Engine) -> None:
         },
         "messages": {
             "id": False,
+            "sequence": False,
             "ticket_id": False,
             "sender_id": False,
             "body": False,
             "created_at": False,
+        },
+        "ticket_read_states": {
+            "user_id": False,
+            "ticket_id": False,
+            "last_read_sequence": False,
+        },
+        "message_attachments": {
+            "id": False,
+            "message_id": False,
+            "storage_provider": False,
+            "storage_key": False,
+            "mime_type": False,
+            "byte_size": False,
+            "width": False,
+            "height": False,
         },
     }
     for table_name, expected in expected_nullability.items():
