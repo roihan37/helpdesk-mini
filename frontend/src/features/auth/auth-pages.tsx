@@ -1,6 +1,7 @@
 "use client";
 
 import { Alert, Button, Field, Input } from "@/components/ui";
+import { Brand, Icon } from "@/components/icon";
 import { useAuth } from "@/features/auth/auth-provider";
 import { PublicOnly } from "@/features/auth/guards";
 import { apiRequest, friendlyError, validationErrors } from "@/lib/api";
@@ -10,9 +11,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
-function PasswordInput({ id, value, onChange, autoComplete, error, help }: { id: string; value: string; onChange: (value: string) => void; autoComplete: string; error?: string; help?: string }) {
+function PasswordInput({ id, value, onChange, autoComplete, error, help, disabled }: { id: string; value: string; onChange: (value: string) => void; autoComplete: string; error?: string; help?: string; disabled?: boolean }) {
   const [visible, setVisible] = useState(false);
-  return <Field label="Password" name={id} error={error} help={help}><div className="password-control"><Input id={id} name={id} type={visible ? "text" : "password"} value={value} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : help ? `${id}-help` : undefined} required /><button className="password-toggle" type="button" aria-pressed={visible} onClick={() => setVisible((current) => !current)}>{visible ? "Hide" : "Show"}</button></div></Field>;
+  return <Field label="Password" name={id} error={error} help={help}><div className="password-control"><Input id={id} name={id} type={visible ? "text" : "password"} value={value} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : help ? `${id}-help` : undefined} minLength={autoComplete === "new-password" ? 8 : undefined} maxLength={autoComplete === "new-password" ? 128 : undefined} placeholder="Enter your password" disabled={disabled} required /><button className="password-toggle" type="button" aria-pressed={visible} disabled={disabled} onClick={() => setVisible((current) => !current)}>{visible ? "Hide" : "Show"}</button></div></Field>;
 }
 
 export function LoginPage() {
@@ -34,7 +35,21 @@ export function LoginPage() {
       setError(friendlyError(reason, "Sign in failed. Check your details and try again."));
     } finally { setPending(false); }
   }
-  return <PublicOnly><main className="auth-page"><section className="auth-panel" aria-labelledby="login-title"><Link className="wordmark" href="/">HelpDesk Mini</Link><h1 id="login-title">Welcome back</h1><p className="auth-intro">Sign in to manage support tickets.</p>{searchParams.get("registered") === "1" ? <Alert tone="success">Business created. Sign in with your administrator account.</Alert> : null}{error ? <Alert tone="error">{error}</Alert> : null}<form className="form-stack" onSubmit={submit}><Field label="Email" name="email"><Input id="email" name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={pending} /></Field><PasswordInput id="password" value={password} onChange={setPassword} autoComplete="current-password" /><Button type="submit" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button></form><p className="auth-footer">New here? <Link href="/register">Register a business</Link></p></section></main></PublicOnly>;
+  return <PublicOnly><main className="auth-page"><div className="auth-layout">
+    <Link className="wordmark" href="/"><Brand /></Link>
+    <section className="auth-panel" aria-labelledby="login-title">
+      <header className="auth-heading"><h1 id="login-title">Welcome back</h1><p className="auth-intro">Sign in to your support workspace.</p></header>
+      {searchParams.get("registered") === "1" ? <Alert tone="success">Business created. Sign in with your administrator account.</Alert> : null}
+      {error ? <Alert tone="error">{error}</Alert> : null}
+      <form className="form-stack" onSubmit={submit}>
+        <Field label="Email address" name="email"><Input id="email" name="email" type="email" autoComplete="email" placeholder="you@company.com" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={pending} /></Field>
+        <PasswordInput id="password" value={password} onChange={setPassword} autoComplete="current-password" disabled={pending} />
+        <Button type="submit" disabled={pending}>{pending ? "Signing in…" : "Sign in"}<Icon name="arrowRight" /></Button>
+      </form>
+      <p className="auth-footer">New to HelpDesk? <Link href="/register">Register a business</Link></p>
+    </section>
+    <p className="auth-caption"><Icon name="lock" /> A private workspace for your team and customers.</p>
+  </div></main></PublicOnly>;
 }
 
 export function RegisterPage() {
@@ -57,5 +72,32 @@ export function RegisterPage() {
       setFormError(friendlyError(reason, "Registration failed. Check the highlighted fields and try again."));
     } finally { setPending(false); }
   }
-  return <PublicOnly><main className="auth-page"><section className="auth-panel auth-panel-wide"><Link className="wordmark" href="/">HelpDesk Mini</Link><h1>Create your workspace</h1><p className="auth-intro">Set up a business and its first administrator.</p>{formError ? <Alert tone="error">{formError}</Alert> : null}<form className="form-stack" onSubmit={submit}><fieldset disabled={pending}><legend>Business</legend><div className="form-stack"><Field label="Business name" name="businessName" error={errors.businessName}><Input id="businessName" value={form.businessName} onChange={(e) => update("businessName", e.target.value)} minLength={1} maxLength={255} required aria-invalid={Boolean(errors.businessName)} /></Field><Field label="Business slug" name="slug" error={errors.slug} help="Lowercase letters, numbers, and hyphens only."><Input id="slug" value={form.slug} onChange={(e) => update("slug", e.target.value.toLowerCase())} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={255} required aria-invalid={Boolean(errors.slug)} /></Field></div></fieldset><fieldset disabled={pending}><legend>Administrator</legend><div className="form-stack"><Field label="Name" name="adminName" error={errors.adminName}><Input id="adminName" value={form.adminName} onChange={(e) => update("adminName", e.target.value)} maxLength={255} autoComplete="name" required aria-invalid={Boolean(errors.adminName)} /></Field><Field label="Email" name="registerEmail" error={errors.email}><Input id="registerEmail" type="email" value={form.email} onChange={(e) => update("email", e.target.value)} autoComplete="email" required aria-invalid={Boolean(errors.email)} /></Field><PasswordInput id="registerPassword" value={form.password} onChange={(value) => update("password", value)} autoComplete="new-password" error={errors.password} help="Use 8 to 128 characters." /></div></fieldset><div className="form-actions"><Button type="submit" disabled={pending}>{pending ? "Creating business…" : "Create business"}</Button><Link className="button button-secondary" href="/login">Back to sign in</Link></div></form></section></main></PublicOnly>;
+  return <PublicOnly><main className="auth-page"><div className="auth-layout auth-layout-wide">
+    <Link className="wordmark" href="/"><Brand /></Link>
+    <section className="auth-panel" aria-labelledby="register-title">
+      <header className="auth-heading"><h1 id="register-title">Create your workspace</h1><p className="auth-intro">Set up your business and its first administrator.</p></header>
+      {formError ? <Alert tone="error">{formError}</Alert> : null}
+      <form className="form-stack" onSubmit={submit}>
+        <fieldset className="form-section" disabled={pending}>
+          <legend>Business details</legend>
+          <div className="form-stack">
+            <Field label="Business name" name="businessName" error={errors.businessName}><Input id="businessName" placeholder="Your company name" value={form.businessName} onChange={(e) => update("businessName", e.target.value)} minLength={1} maxLength={255} required aria-invalid={Boolean(errors.businessName)} aria-describedby={errors.businessName ? "businessName-error" : undefined} /></Field>
+            <Field label="Business slug" name="slug" error={errors.slug} help="A unique identifier. Use lowercase letters, numbers, and hyphens."><Input id="slug" placeholder="your-company" value={form.slug} onChange={(e) => update("slug", e.target.value.toLowerCase())} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={255} required aria-invalid={Boolean(errors.slug)} aria-describedby={errors.slug ? "slug-error" : "slug-help"} /></Field>
+          </div>
+        </fieldset>
+        <fieldset className="form-section" disabled={pending}>
+          <legend>Administrator account</legend>
+          <div className="form-stack">
+            <div className="form-pair">
+              <Field label="Full name" name="adminName" error={errors.adminName}><Input id="adminName" placeholder="Your full name" value={form.adminName} onChange={(e) => update("adminName", e.target.value)} maxLength={255} autoComplete="name" required aria-invalid={Boolean(errors.adminName)} aria-describedby={errors.adminName ? "adminName-error" : undefined} /></Field>
+              <Field label="Email address" name="registerEmail" error={errors.email}><Input id="registerEmail" placeholder="you@company.com" type="email" value={form.email} onChange={(e) => update("email", e.target.value)} autoComplete="email" required aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? "registerEmail-error" : undefined} /></Field>
+            </div>
+            <PasswordInput id="registerPassword" value={form.password} onChange={(value) => update("password", value)} autoComplete="new-password" error={errors.password} help="Use 8 to 128 characters." disabled={pending} />
+          </div>
+        </fieldset>
+        <Button type="submit" disabled={pending}>{pending ? "Creating business…" : "Create business"}<Icon name="arrowRight" /></Button>
+      </form>
+      <p className="auth-footer">Already have an account? <Link href="/login">Sign in</Link></p>
+    </section>
+  </div></main></PublicOnly>;
 }

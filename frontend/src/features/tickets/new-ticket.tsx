@@ -1,6 +1,7 @@
 "use client";
 
 import { Alert, Button, Field, Input, Select, Textarea } from "@/components/ui";
+import { Icon } from "@/components/icon";
 import { useAuth } from "@/features/auth/auth-provider";
 import { ProtectedGuard } from "@/features/auth/guards";
 import { apiRequest, friendlyError, validationErrors } from "@/lib/api";
@@ -35,5 +36,21 @@ function NewTicketForm() {
       setFormError(friendlyError(reason, "The ticket could not be created. Check your connection and try again."));
     } finally { setPending(false); }
   }
-  return <div className="page-stack form-page"><header className="page-header"><div><h1>New ticket</h1><p>Your initial message begins the conversation with support.</p></div></header>{formError ? <Alert tone="error">{formError}</Alert> : null}<form className="form-stack" onSubmit={submit}><fieldset disabled={pending} className="form-stack"><Field label="Subject" name="subject" error={errors.subject}><Input id="subject" value={form.subject} onChange={(e) => update("subject", e.target.value)} minLength={1} maxLength={150} required aria-invalid={Boolean(errors.subject)} /></Field><Field label="Category" name="category" error={errors.category}><Input id="category" value={form.category} onChange={(e) => update("category", e.target.value)} minLength={1} maxLength={100} required aria-invalid={Boolean(errors.category)} /></Field><Field label="Priority" name="priority" error={errors.priority}><Select id="priority" value={form.priority} onChange={(e) => update("priority", e.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></Field><Field label="Initial message" name="message" error={errors.message} help={form.message.length > 4500 ? `${form.message.length} / 5000 characters` : undefined}><Textarea id="message" rows={8} value={form.message} onChange={(e) => update("message", e.target.value)} minLength={1} maxLength={5000} required aria-invalid={Boolean(errors.message)} /></Field></fieldset><div className="form-actions"><Button type="submit" disabled={pending}>{pending ? "Creating ticket…" : "Create ticket"}</Button><Link className="button button-secondary" href="/tickets">Cancel</Link></div></form></div>;
+  return <div className="page-stack form-page">
+    <Link className="back-link" href="/tickets"><Icon name="arrowLeft" />Back to tickets</Link>
+    <header className="page-header"><div><h1>New ticket</h1><p>Tell us what you need. Your first message starts the conversation.</p></div></header>
+    {formError ? <Alert tone="error">{formError}</Alert> : null}
+    <form className="form-surface form-stack" onSubmit={submit}>
+      <div className="form-section-heading"><Icon name="tickets" /><div><h2>Request details</h2><p>A clear subject helps your support team find the right solution.</p></div></div>
+      <fieldset disabled={pending} className="form-stack">
+        <Field label="Subject" name="subject" error={errors.subject}><Input id="subject" placeholder="A short summary of your request" value={form.subject} onChange={(e) => update("subject", e.target.value)} minLength={1} maxLength={150} required aria-invalid={Boolean(errors.subject)} aria-describedby={errors.subject ? "subject-error" : undefined} /></Field>
+        <div className="form-pair">
+          <Field label="Category" name="category" error={errors.category}><Input id="category" placeholder="e.g. Account access" value={form.category} onChange={(e) => update("category", e.target.value)} minLength={1} maxLength={100} required aria-invalid={Boolean(errors.category)} aria-describedby={errors.category ? "category-error" : undefined} /></Field>
+          <Field label="Priority" name="priority" error={errors.priority}><Select id="priority" value={form.priority} onChange={(e) => update("priority", e.target.value)} aria-invalid={Boolean(errors.priority)} aria-describedby={errors.priority ? "priority-error" : undefined}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></Field>
+        </div>
+        <Field label="Initial message" name="message" error={errors.message} help={form.message.length > 4500 ? `${form.message.length} / 5000 characters` : "Include what happened, what you expected, and any useful details."}><Textarea id="message" placeholder="Describe your request…" rows={8} value={form.message} onChange={(e) => update("message", e.target.value)} minLength={1} maxLength={5000} required aria-invalid={Boolean(errors.message)} aria-describedby={errors.message ? "message-error" : "message-help"} /></Field>
+      </fieldset>
+      <div className="form-actions form-surface-actions"><Link className="button button-secondary" href="/tickets">Cancel</Link><Button type="submit" disabled={pending}>{pending ? "Creating ticket…" : "Create ticket"}<Icon name="arrowRight" /></Button></div>
+    </form>
+  </div>;
 }

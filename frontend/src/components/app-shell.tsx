@@ -1,6 +1,7 @@
 "use client";
 
-import { Alert, Button } from "@/components/ui";
+import { Brand, Icon, type IconName } from "@/components/icon";
+import { Alert, Avatar, Button } from "@/components/ui";
 import { useAuth } from "@/features/auth/auth-provider";
 import { friendlyError } from "@/lib/api";
 import { roleLabels } from "@/lib/domain";
@@ -13,7 +14,15 @@ function Navigation({ role, pathname, onNavigate }: { role: Role; pathname: stri
   const items = role === "admin"
     ? [{ href: "/tickets", label: "Tickets" }, { href: "/admin/users", label: "Team" }]
     : [{ href: "/tickets", label: role === "customer" ? "My tickets" : "Tickets" }];
-  return <nav aria-label="Primary navigation" className="primary-nav">{items.map((item) => { const active = pathname === item.href || (item.href === "/tickets" && pathname.startsWith("/tickets")); return <Link key={item.href} href={item.href} className={active ? "nav-link active" : "nav-link"} aria-current={active ? "page" : undefined} onClick={onNavigate}>{item.label}</Link>; })}{role === "customer" ? <Link className="button button-primary nav-action" href="/tickets/new" onClick={onNavigate}>New ticket</Link> : null}</nav>;
+  return <nav aria-label="Primary navigation" className="primary-nav">
+    <span className="nav-label">Workspace</span>
+    {items.map((item) => {
+      const active = pathname === item.href || (item.href === "/tickets" && pathname.startsWith("/tickets"));
+      const icon: IconName = item.href === "/tickets" ? "tickets" : "users";
+      return <Link key={item.href} href={item.href} className={active ? "nav-link active" : "nav-link"} aria-current={active ? "page" : undefined} onClick={onNavigate}><Icon name={icon} />{item.label}</Link>;
+    })}
+    {role === "customer" ? <Link className="button button-secondary nav-action" href="/tickets/new" onClick={onNavigate}><Icon name="plus" />New ticket</Link> : null}
+  </nav>;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -69,5 +78,39 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   if (!user) return null;
-  return <div className="app-shell"><a className="skip-link" href="#main-content">Skip to main content</a><aside className="sidebar"><Link href="/tickets" className="brand">HelpDesk Mini</Link><Navigation role={user.role} pathname={pathname} /></aside><div className="app-column"><header className="topbar"><button ref={menuButton} type="button" className="menu-button" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>☰</button><Link href="/tickets" className="mobile-brand">HelpDesk Mini</Link><span className="business-name">{user.business.name}</span><div className="account-wrap" ref={account}><Button variant="quiet" aria-expanded={accountOpen} aria-haspopup="dialog" onClick={() => setAccountOpen((open) => !open)}>{user.name}</Button>{accountOpen ? <div className="account-menu" role="dialog" aria-label="Account details"><strong>{user.name}</strong><span>{user.email}</span><span>{roleLabels[user.role]} · {user.business.name}</span><p>Session is secured by an HttpOnly cookie.</p>{signOutError ? <Alert tone="error">{signOutError}</Alert> : null}<Button variant="secondary" disabled={signingOut} onClick={() => void handleSignOut()}>{signingOut ? "Signing out…" : "Sign out"}</Button></div> : null}</div></header><main id="main-content" className="main-content" tabIndex={-1}>{children}</main></div>{drawerOpen ? <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDrawerOpen(false); }}><div ref={drawer} className="drawer" role="dialog" aria-modal="true" aria-label="Navigation"><div className="drawer-heading"><span className="brand">HelpDesk Mini</span><button type="button" className="icon-button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)}>×</button></div><Navigation role={user.role} pathname={pathname} onNavigate={() => setDrawerOpen(false)} /></div></div> : null}</div>;
+  const section = pathname.startsWith("/admin") ? "Team" : "Tickets";
+  return <div className="app-shell">
+    <a className="skip-link" href="#main-content">Skip to main content</a>
+    <aside className="sidebar">
+      <Link href="/tickets" className="brand"><Brand /></Link>
+      <Navigation role={user.role} pathname={pathname} />
+      <div className="workspace-card"><Avatar name={user.business.name} /><div><strong>{user.business.name}</strong><span>{roleLabels[user.role]} workspace</span></div></div>
+    </aside>
+    <div className="app-column">
+      <header className="topbar">
+        <button ref={menuButton} type="button" className="menu-button" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Icon name="menu" /></button>
+        <Link href="/tickets" className="mobile-brand"><Brand /></Link>
+        <div className="topbar-context"><span className="business-name">{user.business.name}</span><span className="context-divider" aria-hidden="true">/</span><span>{section}</span></div>
+        <div className="account-wrap" ref={account}>
+          <Button variant="quiet" className="account-trigger" aria-label={`Account: ${user.name}`} aria-expanded={accountOpen} aria-haspopup="dialog" onClick={() => setAccountOpen((open) => !open)}>
+            <Avatar name={user.name} /><span className="account-label"><strong>{user.name}</strong><span>{roleLabels[user.role]}</span></span><Icon name="chevron" />
+          </Button>
+          {accountOpen ? <div className="account-menu" role="dialog" aria-label="Account details">
+            <strong>{user.name}</strong><span>{user.email}</span><span>{roleLabels[user.role]} · {user.business.name}</span>
+            <p><Icon name="lock" /> Secure session</p>
+            {signOutError ? <Alert tone="error">{signOutError}</Alert> : null}
+            <Button variant="secondary" disabled={signingOut} onClick={() => void handleSignOut()}><Icon name="logout" />{signingOut ? "Signing out…" : "Sign out"}</Button>
+          </div> : null}
+        </div>
+      </header>
+      <main id="main-content" className="main-content" tabIndex={-1}>{children}</main>
+    </div>
+    {drawerOpen ? <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDrawerOpen(false); }}>
+      <div ref={drawer} className="drawer" role="dialog" aria-modal="true" aria-label="Navigation">
+        <div className="drawer-heading"><span className="brand"><Brand /></span><button type="button" className="icon-button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)}><Icon name="close" /></button></div>
+        <Navigation role={user.role} pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
+        <div className="workspace-card"><Avatar name={user.business.name} /><div><strong>{user.business.name}</strong><span>{roleLabels[user.role]} workspace</span></div></div>
+      </div>
+    </div> : null}
+  </div>;
 }
