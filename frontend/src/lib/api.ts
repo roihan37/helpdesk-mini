@@ -67,11 +67,14 @@ async function parseResponse<T>(response: Response): Promise<T> {
 export async function refreshAccessToken() {
   if (!refreshPromise) {
     const refreshEpoch = authEpoch;
-    refreshPromise = fetch(`${API_URL}/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-      headers: { Accept: "application/json" },
-    })
+    refreshPromise = fetch(
+      `${API_URL}/auth/refresh`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      }
+    )
       .then(parseResponse<AccessTokenResponse>)
       .then((data) => {
         if (refreshEpoch !== authEpoch) {
@@ -103,11 +106,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
   if (init.body) requestHeaders.set("Content-Type", "application/json");
   if (auth && accessToken) requestHeaders.set("Authorization", `Bearer ${accessToken}`);
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: requestHeaders,
-    credentials: "include",
-  });
+  const response = await fetch(
+    `${API_URL}${path}`,
+    {
+      ...init,
+      headers: requestHeaders,
+      credentials: "include",
+    }
+  );
 
   if (response.status === 401 && auth && retryAuth) {
     try {
@@ -121,12 +127,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
 }
 
 export async function login(email: string, password: string) {
-  const data = await apiRequest<LoginResponse>("/auth/login", {
-    method: "POST",
-    auth: false,
-    retryAuth: false,
-    body: JSON.stringify({ email, password }),
-  });
+  const data = await apiRequest<LoginResponse>(
+    "/auth/login",
+    {
+      method: "POST",
+      auth: false,
+      retryAuth: false,
+      body: JSON.stringify({ email, password }),
+    }
+  );
   // The response-body refresh token is deliberately discarded. The HttpOnly cookie is authoritative.
   authEpoch += 1;
   setAccessToken(data.access_token);
@@ -134,11 +143,14 @@ export async function login(email: string, password: string) {
 }
 
 export async function logout() {
-  const response = await fetch(`${API_URL}/auth/logout`, {
-    method: "POST",
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
+  const response = await fetch(
+    `${API_URL}/auth/logout`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    }
+  );
   if (!response.ok) await parseResponse<never>(response);
   authEpoch += 1;
   setAccessToken(null);
@@ -157,7 +169,10 @@ export function validationErrors(error: unknown) {
   const errors: Record<string, string> = {};
   for (const item of error.details) {
     if (!item || typeof item !== "object") continue;
-    const detail = item as { loc?: unknown[]; msg?: string };
+    const detail = item as {
+      loc?: unknown[];
+      msg?: string
+    };
     const path = detail.loc?.filter((part): part is string => typeof part === "string") ?? [];
     const field = path.at(-1);
     if (typeof field === "string" && typeof detail.msg === "string") {

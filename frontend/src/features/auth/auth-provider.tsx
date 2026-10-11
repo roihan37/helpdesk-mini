@@ -7,7 +7,13 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 type AuthState = "bootstrapping" | "authenticated" | "anonymous" | "unavailable";
-interface AuthContextValue { state: AuthState; user: CurrentUser | null; signIn: (email: string, password: string) => Promise<CurrentUser>; signOut: () => Promise<void>; retryBootstrap: () => Promise<void> }
+interface AuthContextValue {
+  state: AuthState;
+  user: CurrentUser | null;
+  signIn: (email: string, password: string) => Promise<CurrentUser>;
+  signOut: () => Promise<void>;
+  retryBootstrap: () => Promise<void>
+}
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AppProviders({ children }: { children: ReactNode }) {
@@ -27,8 +33,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setState(error instanceof TypeError ? "unavailable" : "anonymous");
     }
   }, [queryClient]);
-  useEffect(() => { const timer = window.setTimeout(() => void bootstrap(), 0); return () => window.clearTimeout(timer); }, [bootstrap]);
-  useEffect(() => onAuthLost(() => { setUser(null); queryClient.clear(); setState("anonymous"); }), [queryClient]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void bootstrap(), 0);
+    return () => window.clearTimeout(timer);
+  }, [bootstrap]);
+  useEffect(() => onAuthLost(() => {
+    setUser(null);
+    queryClient.clear();
+    setState("anonymous");
+  }), [queryClient]);
   const signIn = useCallback(async (email: string, password: string) => {
     const currentUser = await loginRequest(email, password);
     setUser(currentUser);
@@ -42,9 +55,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     queryClient.clear();
     setState("anonymous");
   }, [queryClient]);
-  const retryBootstrap = useCallback(async () => { setState("bootstrapping"); await bootstrap(); }, [bootstrap]);
+  const retryBootstrap = useCallback(async () => {
+    setState("bootstrapping");
+    await bootstrap();
+  }, [bootstrap]);
   const value = useMemo(() => ({ state, user, signIn, signOut, retryBootstrap }), [retryBootstrap, signIn, signOut, state, user]);
-  return <QueryClientProvider client={queryClient}><AuthContext.Provider value={value}>{children}</AuthContext.Provider></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  </QueryClientProvider>;
 }
 
 export function useAuth() {

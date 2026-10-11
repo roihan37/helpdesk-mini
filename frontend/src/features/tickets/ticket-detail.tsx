@@ -16,46 +16,205 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 export function TicketDetailPage() {
   const params = useParams<{ id: string }>();
   const ticketId = params.id;
-  const ticket = useQuery({ queryKey: queryKeys.ticket(ticketId), queryFn: () => apiRequest<TicketDetail>(`/tickets/${encodeURIComponent(ticketId)}`), enabled: Boolean(ticketId) });
-  const messages = useQuery({ queryKey: queryKeys.messages(ticketId), queryFn: () => apiRequest<Message[]>(`/tickets/${encodeURIComponent(ticketId)}/messages`), enabled: Boolean(ticket.data) });
+  const ticket = useQuery({
+    queryKey: queryKeys.ticket(ticketId),
+    queryFn: () => apiRequest<TicketDetail>(`/tickets/${encodeURIComponent(ticketId)}`),
+    enabled: Boolean(ticketId)
+  });
+  const messages = useQuery({
+    queryKey: queryKeys.messages(ticketId),
+    queryFn: () => apiRequest<Message[]>(`/tickets/${encodeURIComponent(ticketId)}/messages`),
+    enabled: Boolean(ticket.data)
+  });
   if (ticket.isLoading || (ticket.data && messages.isLoading)) return <LoadingPanel label="Loading ticket and conversation…" />;
   if (ticket.error instanceof ApiError && ticket.error.status === 404) return <NotFound />;
-  if (ticket.isError) return <div className="centered-state"><Alert tone="error">This ticket could not be loaded. Try again.</Alert><Button onClick={() => void ticket.refetch()}>Retry</Button></div>;
+  if (ticket.isError) return <div className="centered-state">
+    <Alert tone="error">This ticket could not be loaded. Try again.</Alert>
+    <Button onClick={() => void ticket.refetch()}>Retry</Button>
+  </div>;
   if (!ticket.data) return null;
-  return <TicketWorkspace ticket={ticket.data} messages={messages.data ?? []} messagesError={messages.isError} retryMessages={() => void messages.refetch()} />;
+  return <TicketWorkspace
+    ticket={ticket.data}
+    messages={messages.data ?? []}
+    messagesError={messages.isError}
+    retryMessages={() => void messages.refetch()}
+  />;
 }
 
-function NotFound() { return <div className="centered-state"><EmptyState title="Ticket not found or unavailable" action={<Link className="button button-secondary" href="/tickets">Back to tickets</Link>}>The ticket may not exist or you may not have access.</EmptyState></div>; }
+function NotFound() {
+  return <div className="centered-state">
+    <EmptyState
+      title="Ticket not found or unavailable"
+      action={<Link className="button button-secondary" href="/tickets">Back to tickets</Link>}
+    >The ticket may not exist or you may not have access.</EmptyState>
+  </div>;
+}
 
-function TicketWorkspace({ ticket, messages, messagesError, retryMessages }: { ticket: TicketDetail; messages: Message[]; messagesError: boolean; retryMessages: () => void }) {
+function TicketWorkspace({ ticket, messages, messagesError, retryMessages }: {
+  ticket: TicketDetail;
+  messages: Message[];
+  messagesError: boolean;
+  retryMessages: () => void
+}) {
   const { user } = useAuth();
   const canSend = Boolean(user && user.role !== "admin" && ticket.status !== "closed");
   const socket = useTicketSocket(ticket.id, !messagesError, user?.id ?? "");
-  return <div className="page-stack ticket-detail"><header className="ticket-header"><Link href="/tickets" className="back-link"><Icon name="arrowLeft" />Back to tickets</Link><div className="ticket-title-row"><div><h1>{ticket.subject}</h1><div className="badge-row"><Badge kind={ticket.status}>{statusLabels[ticket.status]}</Badge><span className={`priority priority-${ticket.priority}`}><span />{ticket.priority} priority</span><span className="ticket-category">{ticket.category}</span></div></div><ConnectionStatus state={socket.connection} /></div></header><div className="ticket-grid"><Conversation ticket={ticket} messages={messages} currentUserId={user?.id ?? ""} role={user?.role} canSend={canSend} socket={socket} messagesError={messagesError} retryMessages={retryMessages} /><TicketDetails ticket={ticket} /></div></div>;
+  return <div className="page-stack ticket-detail">
+    <header className="ticket-header">
+      <Link href="/tickets" className="back-link"><Icon name="arrowLeft" />Back to tickets</Link>
+      <div className="ticket-title-row">
+        <div>
+          <h1>{ticket.subject}</h1>
+          <div className="badge-row">
+            <Badge kind={ticket.status}>{statusLabels[ticket.status]}</Badge>
+            <span className={`priority priority-${ticket.priority}`}><span />{ticket.priority} priority</span>
+            <span className="ticket-category">{ticket.category}</span>
+          </div>
+        </div>
+        <ConnectionStatus state={socket.connection} />
+      </div>
+    </header>
+    <div className="ticket-grid">
+      <Conversation
+        ticket={ticket}
+        messages={messages}
+        currentUserId={user?.id ?? ""}
+        role={user?.role}
+        canSend={canSend}
+        socket={socket}
+        messagesError={messagesError}
+        retryMessages={retryMessages}
+      />
+      <TicketDetails ticket={ticket} />
+    </div>
+  </div>;
 }
 
-function ConnectionStatus({ state }: { state: ConnectionState }) { const labels: Record<ConnectionState, string> = { connecting: "Connecting…", connected: "Live", reconnecting: "Reconnecting…", offline: "Connection lost", unauthorized: "Session expired" }; return <span className={`connection connection-${state}`} role="status"><span aria-hidden="true" />{labels[state]}</span>; }
+function ConnectionStatus({ state }: { state: ConnectionState }) {
+  const labels: Record<ConnectionState, string> = {
+    connecting: "Connecting…",
+    connected: "Live",
+    reconnecting: "Reconnecting…",
+    offline: "Connection lost",
+    unauthorized: "Session expired"
+  };
+  return <span className={`connection connection-${state}`} role="status">
+    <span aria-hidden="true" />
+    {labels[state]}
+  </span>;
+}
 
-function Conversation({ ticket, messages, currentUserId, role, canSend, socket, messagesError, retryMessages }: { ticket: TicketDetail; messages: Message[]; currentUserId: string; role?: string; canSend: boolean; socket: ReturnType<typeof useTicketSocket>; messagesError: boolean; retryMessages: () => void }) {
+function Conversation({ ticket, messages, currentUserId, role, canSend, socket, messagesError, retryMessages }: {
+  ticket: TicketDetail;
+  messages: Message[];
+  currentUserId: string;
+  role?: string;
+  canSend: boolean;
+  socket: ReturnType<typeof useTicketSocket>;
+  messagesError: boolean;
+  retryMessages: () => void
+}) {
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(messages.length);
   const [showNew, setShowNew] = useState(false);
   useEffect(() => {
-    const list = listRef.current; if (!list) return;
+    const list = listRef.current;
+    if (!list) return;
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 96;
     if (previousCount.current === 0 || nearBottom) list.scrollTop = list.scrollHeight;
     else if (messages.length > previousCount.current) setShowNew(true);
     previousCount.current = messages.length;
   }, [messages.length]);
-  function submit(event: FormEvent) { event.preventDefault(); if (socket.send(draft)) setDraft(""); }
-  function jumpToNew() { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; setShowNew(false); }
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (socket.send(draft)) setDraft("");
+  }
+  function jumpToNew() {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    setShowNew(false);
+  }
   return <section className="conversation" aria-labelledby="conversation-title">
-    <header className="conversation-heading"><div className="panel-heading"><Icon name="message" /><h2 id="conversation-title">Conversation</h2></div><span>{ticket.status === "closed" || role === "admin" ? "Read-only" : "Ticket chat"}</span></header>
-    {messagesError ? <div className="panel-feedback"><Alert tone="error">Messages could not be loaded. <Button variant="quiet" onClick={retryMessages}>Retry</Button></Alert></div> : null}
-    <div className="message-list" ref={listRef}>{messages.length === 0 && !messagesError ? <EmptyState title="No messages yet">Conversation history will appear here.</EmptyState> : messages.map((message) => <article key={message.id} className={message.sender_id === currentUserId ? "message message-own" : "message"}><Avatar name={message.sender_name} small /><div className="message-content"><header><strong>{message.sender_name}</strong><span className="message-role">{roleLabels[message.sender_role]}</span></header><p className="message-bubble">{message.body}</p><time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time></div></article>)}</div>
-    {showNew ? <Button className="new-messages" variant="secondary" onClick={jumpToNew}>New messages</Button> : null}
-    <div className="composer">{socket.error ? <Alert tone="error">{socket.error}{socket.connection === "offline" ? <Button variant="quiet" onClick={socket.retry}>Retry</Button> : null}</Alert> : null}{ticket.status === "closed" ? <p className="read-only-note"><Icon name="lock" />This ticket is closed. Conversation history is read-only.</p> : role === "admin" ? <p className="read-only-note"><Icon name="lock" />Admins can review this conversation but cannot send messages.</p> : <form onSubmit={submit}><label htmlFor="message-body">Reply to conversation</label><Textarea id="message-body" placeholder="Write a message…" aria-describedby="message-help" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={5000} rows={3} disabled={!canSend || socket.connection !== "connected" || socket.sending} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} /><div className="composer-footer"><span id="message-help">{socket.connection === "connected" ? "Enter to send · Shift+Enter for a new line" : "Messages are available when the connection is live."}</span><Button type="submit" disabled={!draft.trim() || !canSend || socket.connection !== "connected" || socket.sending}><Icon name="send" />{socket.sending ? "Sending…" : "Send message"}</Button></div></form>}</div>
+    <header className="conversation-heading">
+      <div className="panel-heading">
+        <Icon name="message" />
+        <h2 id="conversation-title">Conversation</h2>
+      </div>
+      <span>{ticket.status === "closed" || role === "admin" ? "Read-only" : "Ticket chat"}</span>
+    </header>
+    {messagesError
+      ? <div className="panel-feedback">
+        <Alert tone="error">Messages could not be loaded. <Button variant="quiet" onClick={retryMessages}>Retry</Button></Alert>
+      </div>
+      : null}
+    <div className="message-list" ref={listRef}>
+      {messages.length === 0 && !messagesError
+        ? <EmptyState title="No messages yet">Conversation history will appear here.</EmptyState>
+        : messages.map((message) => <article
+          key={message.id}
+          className={message.sender_id === currentUserId ? "message message-own" : "message"}
+        >
+          <Avatar name={message.sender_name} small />
+          <div className="message-content">
+            <header>
+              <strong>{message.sender_name}</strong>
+              <span className="message-role">{roleLabels[message.sender_role]}</span>
+            </header>
+            <p className="message-bubble">{message.body}</p>
+            <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
+          </div>
+        </article>)}
+    </div>
+    {showNew
+      ? <Button className="new-messages" variant="secondary" onClick={jumpToNew}>New messages</Button>
+      : null}
+    <div className="composer">
+      {socket.error
+        ? <Alert tone="error">
+          {socket.error}
+          {socket.connection === "offline"
+            ? <Button variant="quiet" onClick={socket.retry}>Retry</Button>
+            : null}
+        </Alert>
+        : null}
+      {ticket.status === "closed"
+        ? <p className="read-only-note"><Icon name="lock" />This ticket is closed. Conversation history is read-only.</p>
+        : role === "admin"
+          ? <p className="read-only-note"><Icon name="lock" />Admins can review this conversation but cannot send messages.</p>
+          : <form onSubmit={submit}>
+            <label htmlFor="message-body">Reply to conversation</label>
+            <Textarea
+              id="message-body"
+              placeholder="Write a message…"
+              aria-describedby="message-help"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              maxLength={5000}
+              rows={3}
+              disabled={!canSend || socket.connection !== "connected" || socket.sending}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <div className="composer-footer">
+              <span id="message-help">
+                {socket.connection === "connected"
+                  ? "Enter to send · Shift+Enter for a new line"
+                  : "Messages are available when the connection is live."}
+              </span>
+              <Button
+                type="submit"
+                disabled={!draft.trim() || !canSend || socket.connection !== "connected" || socket.sending}
+              >
+                <Icon name="send" />
+                {socket.sending ? "Sending…" : "Send message"}
+              </Button>
+            </div>
+          </form>}
+    </div>
   </section>;
 }
 
@@ -63,12 +222,110 @@ function TicketDetails({ ticket }: { ticket: TicketDetail }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [feedback, setFeedback] = useState("");
-  const agents = useQuery({ queryKey: queryKeys.users, queryFn: () => apiRequest<User[]>("/users"), enabled: user?.role === "admin" });
-  const updateTicket = useMutation({ mutationFn: (payload: { status?: TicketStatus; assigned_agent_id?: string }) => apiRequest<TicketDetail>(`/tickets/${encodeURIComponent(ticket.id)}`, { method: "PATCH", body: JSON.stringify(payload) }), onSuccess: (updated) => { queryClient.setQueryData(queryKeys.ticket(ticket.id), updated); void queryClient.invalidateQueries({ queryKey: ["tickets"] }); setFeedback("Ticket updated."); }, onError: (error) => { setFeedback(error instanceof ApiError && error.status === 409 ? "This ticket changed since you opened it. The latest details have been loaded." : friendlyError(error)); void queryClient.invalidateQueries({ queryKey: queryKeys.ticket(ticket.id) }); } });
+  const agents = useQuery({
+    queryKey: queryKeys.users,
+    queryFn: () => apiRequest<User[]>("/users"),
+    enabled: user?.role === "admin"
+  });
+  const updateTicket = useMutation({
+    mutationFn: (payload: {
+      status?: TicketStatus;
+      assigned_agent_id?: string
+    }) => apiRequest<TicketDetail>(
+      `/tickets/${encodeURIComponent(ticket.id)}`,
+      { method: "PATCH", body: JSON.stringify(payload) }
+    ),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.ticket(ticket.id), updated);
+      void queryClient.invalidateQueries({ queryKey: ["tickets"] });
+      setFeedback("Ticket updated.");
+    },
+    onError: (error) => {
+      setFeedback(error instanceof ApiError && error.status === 409
+        ? "This ticket changed since you opened it. The latest details have been loaded."
+        : friendlyError(error));
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ticket(ticket.id) });
+    }
+  });
   const next = user ? nextTicketStatus(user.role, ticket.status) : null;
   const canClaim = user?.role === "agent" && !ticket.assigned_agent_id;
   const canAssign = user?.role === "admin" && ticket.status !== "closed";
   const nextLabel = next === "open" ? "Reopen ticket" : next ? `Move to ${statusLabels[next]}` : null;
-  function detailsContent(id: string) { return <div className="details-content"><dl><div><dt>Customer</dt><dd>{ticket.customer.name}</dd></div><div><dt>Category</dt><dd>{ticket.category}</dd></div><div><dt>Assigned agent</dt><dd>{ticket.assigned_agent?.name ?? "Unassigned"}</dd></div><div><dt>Created</dt><dd><time dateTime={ticket.created_at}>{formatDateTime(ticket.created_at)}</time></dd></div><div><dt>Latest activity</dt><dd><time dateTime={ticket.updated_at}>{formatDateTime(ticket.updated_at)}</time></dd></div></dl>{feedback ? <Alert tone={feedback === "Ticket updated." ? "success" : "error"}>{feedback}</Alert> : null}{canAssign ? <div className="action-block"><label htmlFor={`assign-agent-${id}`}>Assign agent</label><Select id={`assign-agent-${id}`} value={ticket.assigned_agent_id ?? ""} disabled={agents.isLoading || updateTicket.isPending} onChange={(event) => { if (event.target.value) updateTicket.mutate({ assigned_agent_id: event.target.value }); }}><option value="" disabled>Select an agent</option>{agents.data?.filter((person) => person.role === "agent").map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</Select>{agents.isError ? <span className="field-error">Agents could not be loaded.</span> : null}</div> : null}<div className="detail-actions">{canClaim ? <Button variant="secondary" disabled={updateTicket.isPending} onClick={() => user && updateTicket.mutate({ assigned_agent_id: user.id })}>{updateTicket.isPending ? "Updating…" : "Take ticket"}</Button> : null}{nextLabel ? <Button disabled={updateTicket.isPending} onClick={() => next && updateTicket.mutate({ status: next })}>{updateTicket.isPending ? "Updating…" : nextLabel}</Button> : null}</div></div>; }
-  return <aside className="ticket-aside"><h2 className="desktop-details">Ticket details</h2><div className="desktop-details">{detailsContent("desktop")}</div><details className="mobile-details"><summary>Ticket details and actions</summary>{detailsContent("mobile")}</details></aside>;
+  function detailsContent(id: string) {
+    return <div className="details-content">
+      <dl>
+        <div>
+          <dt>Customer</dt>
+          <dd>{ticket.customer.name}</dd>
+        </div>
+        <div>
+          <dt>Category</dt>
+          <dd>{ticket.category}</dd>
+        </div>
+        <div>
+          <dt>Assigned agent</dt>
+          <dd>{ticket.assigned_agent?.name ?? "Unassigned"}</dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd>
+            <time dateTime={ticket.created_at}>{formatDateTime(ticket.created_at)}</time>
+          </dd>
+        </div>
+        <div>
+          <dt>Latest activity</dt>
+          <dd>
+            <time dateTime={ticket.updated_at}>{formatDateTime(ticket.updated_at)}</time>
+          </dd>
+        </div>
+      </dl>
+      {feedback
+        ? <Alert tone={feedback === "Ticket updated." ? "success" : "error"}>{feedback}</Alert>
+        : null}
+      {canAssign
+        ? <div className="action-block">
+          <label htmlFor={`assign-agent-${id}`}>Assign agent</label>
+          <Select
+            id={`assign-agent-${id}`}
+            value={ticket.assigned_agent_id ?? ""}
+            disabled={agents.isLoading || updateTicket.isPending}
+            onChange={(event) => {
+              if (event.target.value) updateTicket.mutate({ assigned_agent_id: event.target.value });
+            }}
+          >
+            <option value="" disabled>Select an agent</option>
+            {agents.data?.filter((person) => person.role === "agent").map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+          </Select>
+          {agents.isError ? <span className="field-error">Agents could not be loaded.</span> : null}
+        </div>
+        : null}
+      <div className="detail-actions">
+        {canClaim
+          ? <Button
+            variant="secondary"
+            disabled={updateTicket.isPending}
+            onClick={() => user && updateTicket.mutate({ assigned_agent_id: user.id })}
+          >
+            {updateTicket.isPending ? "Updating…" : "Take ticket"}
+          </Button>
+          : null}
+        {nextLabel
+          ? <Button
+            disabled={updateTicket.isPending}
+            onClick={() => next && updateTicket.mutate({ status: next })}
+          >
+            {updateTicket.isPending ? "Updating…" : nextLabel}
+          </Button>
+          : null}
+      </div>
+    </div>;
+  }
+  return <aside className="ticket-aside">
+    <h2 className="desktop-details">Ticket details</h2>
+    <div className="desktop-details">{detailsContent("desktop")}</div>
+    <details className="mobile-details">
+      <summary>Ticket details and actions</summary>
+      {detailsContent("mobile")}
+    </details>
+  </aside>;
 }

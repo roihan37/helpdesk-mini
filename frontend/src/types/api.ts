@@ -89,9 +89,22 @@ export interface ApiErrorPayload {
 }
 
 export type WebSocketEvent =
-  | { type: "message.created"; data: Message }
   | {
-      type: "ticket.status_changed";
-      data: { ticket_id: string; status: TicketStatus; updated_at: string };
+    type: "message.created";
+    data: Message
+  }
+  | {
+    type: "ticket.status_changed";
+    data: {
+      ticket_id: string;
+      status: TicketStatus;
+      updated_at: string
+    };
+  }
+  | {
+    type: "error";
+    data: {
+      code: string;
+      message: string
     }
-  | { type: "error"; data: { code: string; message: string } };
+  };
