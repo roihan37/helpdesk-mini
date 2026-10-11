@@ -2,7 +2,7 @@
 
 ## Status
 
-**PHASE 2 IMPLEMENTED — PENDING PHASE 3 VERIFICATION**
+**PHASE 3 VALIDATED WITH OPEN VERIFICATION GAPS — BLOCKED**
 
 Phase 1 planning date: 2026-10-10
 
@@ -625,3 +625,127 @@ PATH=/Users/amiramilin/.nvm/versions/node/v24.18.0/bin:/usr/bin:/bin:/usr/sbin:/
   browser. Logout does not revoke copied stateless JWTs server-side.
 
 Do not move this plan to `completed/`, start M7, commit, or push during Phase 2.
+
+## 14. Phase 3 Integration and UI Verification Record
+
+Validation date: 2026-10-11
+
+M6 remains active. Phase 3 found no confirmed source-code defect, but the milestone is **BLOCKED**
+from Phase 4 completion because precise 320px/tablet viewport testing and forced WebSocket
+disconnect/policy-close testing were not executed. Unverified behavior is not counted as passing.
+
+### Test environment
+
+- The existing local Next.js frontend and single-worker FastAPI backend were exercised against the
+  configured local PostgreSQL development database using uniquely named disposable M6 test data.
+- No database reset, downgrade, destructive cleanup, commit, or push was performed.
+- Three roles were exercised: Admin, Agent, and two Customers in one disposable business. A second
+  uniquely named business was used only for cross-business denial verification.
+- The primary test Ticket was `ee543047-a684-4a18-8f22-6c1bb07fbd06`.
+
+### Commands executed
+
+The automation shell did not expose `npm` or `uv` on its default `PATH`, so the installed Node
+runtime was invoked directly:
+
+```bash
+cd frontend
+/Users/amiramilin/.nvm/versions/node/v24.18.0/bin/node node_modules/eslint/bin/eslint.js .
+/Users/amiramilin/.nvm/versions/node/v24.18.0/bin/node node_modules/typescript/bin/tsc --noEmit
+/Users/amiramilin/.nvm/versions/node/v24.18.0/bin/node --test src/lib/domain.test.ts
+/Users/amiramilin/.nvm/versions/node/v24.18.0/bin/node node_modules/next/dist/bin/next build --webpack
+
+cd ..
+git diff --check
+git status --short
+```
+
+A local Node HTTP probe also exercised the real FastAPI registration, login, duplicate, validation,
+and cross-business Ticket responses. The disposable password was intentionally not recorded in this
+plan.
+
+### Static and build results
+
+- **PASS** — ESLint: 0 errors.
+- **PASS** — strict TypeScript check: 0 errors.
+- **PASS** — focused domain tests: 3 passed, 0 failed. Node emitted the existing non-blocking
+  `MODULE_TYPELESS_PACKAGE_JSON` warning.
+- **PASS** — Next.js production webpack build: all eight application routes compiled successfully.
+- **PASS** — `git diff --check`: no whitespace errors before this record was added.
+- **NOT RUN** — a dedicated frontend browser-E2E test command. No E2E framework is configured, and
+  none was introduced solely for this phase.
+- **NOT RUN** — backend M2-M5 pytest regressions. `TEST_DATABASE_URL` was not configured for an
+  isolated disposable PostgreSQL database; the valuable configured database was not reset or used
+  for destructive test setup. No backend integration source was changed in Phase 3.
+
+### Browser and API integration evidence
+
+1. **PASS** — Customer, Agent, and Admin login; reload restored the Customer session through the
+   refresh-cookie bootstrap; role-specific navigation was visible.
+2. **PASS** — Customer created a Ticket through the UI with its first message and reached the detail
+   view. Reload retained the persisted Ticket and initial message.
+3. **PASS** — an Agent self-assigned the Ticket and advanced it through `open`, `in_progress`, and
+   `resolved`; the Customer observed committed status updates in the second browser and successfully
+   reopened the resolved Ticket.
+4. **PASS** — two authorized browser sessions exchanged Agent and Customer messages without a
+   manual refresh. Both messages appeared once, with sender, role, and timestamp. Reload restored
+   the same three-message history without duplicates.
+5. **PASS** — the Agent closed the Ticket. Both clients displayed the closed state and read-only
+   history; neither displayed a message composer.
+6. **PASS** — logout cleared the visible session and redirected the protected Ticket URL to
+   `/login?next=...`.
+7. **PASS** — an Admin viewed the business Ticket list, Team list, and accessible create-user dialog.
+   Status filtering changed the URL to `?status=open` and rendered the intentional empty state.
+8. **PASS** — a second Customer followed a return path to the first Customer's Ticket and received
+   the generic `Ticket not found or unavailable` view.
+9. **PASS** — real API responses were `201` for registration, `200` for login, `409` for duplicate
+   registration, `422` for invalid registration, and `404` for a Business B user requesting the
+   Business A Ticket.
+10. **PARTIAL** — Admin read-only behavior is enforced by the rendered implementation and the closed
+    Ticket was read-only in the browser, but an Admin viewing an open Ticket was not exercised in
+    this run. Admin assignment UI was inspected but no second assignment mutation was submitted.
+11. **PARTIAL** — normal reload reconnection, REST-history reconciliation, deduplication, and
+    navigation cleanup paths were exercised. Forced network interruption, a policy-close `1008`,
+    and proof that no old socket remains after navigation were not instrumented.
+12. **PARTIAL** — desktop browser flows were exercised and semantic accessibility trees exposed
+    labelled forms, navigation, headings, dialogs, status text, and controls. Exact 320px and tablet
+    viewport inspection, horizontal-overflow measurement, keyboard-only traversal, and assistive-
+    technology testing were not run with a viewport-capable automation tool.
+
+### Security and implementation review
+
+- **PASS (source review)** — access tokens are held in module memory; refresh uses the credentialed
+  HttpOnly cookie; logout and auth loss clear protected query data. No browser-storage JWT use was
+  found.
+- **PASS (source review)** — the Ticket socket opens only after authorized detail and history data
+  resolve, merges by Message ID, refetches on connection, bounds reconnect attempts, stops on
+  policy close, and cancels sockets/timers on cleanup.
+- **PASS (source review)** — Admin and closed-Ticket composer branches render explanatory read-only
+  text. React renders user message bodies as text.
+- **PASS (source review)** — global visible focus styling, explicit form labels and error
+  associations, live status/error regions, semantic tables/lists, dialog focus management, mobile
+  drawer focus trapping, Escape handling, body-scroll locking, focus restoration, reduced-motion
+  rules, and responsive Ticket/list/dialog styles are present.
+- **PASS** — no cross-user content remained visible after logout/login switching in the exercised
+  browser session; generic 404 behavior prevented ownership or tenant disclosure.
+
+### Defects and changes
+
+- No confirmed M6 source defect was found, so no frontend or backend implementation file was
+  changed and no test assertion was weakened.
+- This execution plan is the only Phase 3 file modified to record actual evidence and gaps.
+
+### Remaining blockers for Phase 4
+
+- Run a real browser at 320px, tablet, and desktop widths; measure page-level overflow and exercise
+  the mobile drawer, Ticket list/detail, action panel, dialog, and chat composer with keyboard input.
+- Force a WebSocket network interruption and authorization/policy close; verify disabled send,
+  bounded recovery, post-reconnect history reconciliation, and absence of an old-room connection
+  after navigation.
+- Exercise an Admin on an open Ticket to confirm read-only chat while assignment/status controls
+  remain available, and exercise direct non-Admin access to `/admin/users`.
+- If backend regressions are required for Phase 4, configure a disposable PostgreSQL
+  `TEST_DATABASE_URL` and run M2-M5 tests without touching valuable data.
+
+Do not move this plan to `completed/`, start Phase 4 or M7, commit, or push while these Phase 3
+verification gaps remain.
