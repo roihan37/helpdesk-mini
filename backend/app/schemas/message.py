@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models import TicketStatus, UserRole
 from app.schemas.common import StrictRequest
@@ -12,6 +12,35 @@ from app.schemas.ticket import MessageBody
 class MessageSendEvent(StrictRequest):
     type: Literal["message.send"]
     body: MessageBody
+
+
+class TypingEvent(StrictRequest):
+    type: Literal["typing.start", "typing.stop"]
+
+
+class MessageReader(BaseModel):
+    user_id: uuid.UUID
+    name: str
+    role: UserRole
+
+
+class TypingData(MessageReader):
+    ticket_id: uuid.UUID
+
+
+class TypingBroadcast(BaseModel):
+    type: Literal["typing.start", "typing.stop"]
+    data: TypingData
+
+
+class MessageReadData(MessageReader):
+    ticket_id: uuid.UUID
+    last_read_sequence: str
+
+
+class MessageReadEvent(BaseModel):
+    type: Literal["message.read"] = "message.read"
+    data: MessageReadData
 
 
 class MessagePublic(BaseModel):
@@ -24,6 +53,8 @@ class MessagePublic(BaseModel):
     sender_role: UserRole
     body: str
     created_at: datetime
+    # Populated only for the requesting sender's outgoing history.
+    read_by: list[MessageReader] = Field(default_factory=list)
 
 
 class MessageListResponse(BaseModel):

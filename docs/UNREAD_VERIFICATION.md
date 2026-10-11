@@ -36,7 +36,8 @@ isolated disposable PostgreSQL data and independent authenticated browser sessio
   preserve filters, search, page, and latest-activity sorting. Read state does not change Ticket
   activity. Zero counts hide badges on desktop/mobile; accessible count labels remain usable.
 - Private `ticket.read` synchronizes the reader's other sessions only, silently. Other users
-  receive no read receipt and retain independent counts. Verify both business and Customer
+  receive no receipt from this list stream and retain independent counts. B6 deliberately adds
+  separate sender-scoped room receipts; see `CHAT_PRESENCE_VERIFICATION.md`. Verify both business and Customer
   isolation, current database role checks, expired-token rejection, and reconnect REST recovery.
 - No acknowledgement on history prefetch, loading/error states, hidden tabs, off-screen chat,
   or scrolling away from the end. Successfully loaded, reconciled, rendered, visible history

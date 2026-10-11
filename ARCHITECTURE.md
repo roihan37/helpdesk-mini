@@ -555,9 +555,28 @@ the writer holds this lock, rather than using transaction-start timestamps as re
 The frontend acknowledges only successfully rendered history whose end is visible in the
 active tab. It reconciles REST history before acknowledgement to handle out-of-order socket
 events, waits for the reconciled messages to render, and refetches list counts after success.
-History GET, prefetch, hidden tabs, and failed loads do not acknowledge reads. This is private
-unread tracking, not a sender-visible read receipt. Server authorization is authoritative;
+History GET, prefetch, hidden tabs, and failed loads do not acknowledge reads. List counts and
+`ticket.read` notifications remain private; B6 adds the scoped receipts below. Server authorization is authoritative;
 the server cannot prove a human actually read the rendered content.
+
+### 8.8 Typing and Sender-Scoped Read Receipts (B6)
+
+Reuse `ticket_read_states` and Message sequences; no additional database schema is needed.
+Message history uses a single batched cursor lookup to populate `read_by` only on the requesting
+sender's outgoing messages. Only authorized Agents and the Ticket's Customer count as readers;
+the sender and read-only Admin reviews do not count. Missing cursors provide no read evidence
+for historical messages. "Seen by [names]" identifies specific readers, never everyone.
+
+After a changed mark-read transaction commits, a `message.read` ticket-room event carries the
+authenticated reader and persisted boundary only to currently authorized authors of covered
+messages. The existing visible-history acknowledgement remains the sole read mutation path.
+Reconnect refetches authoritative history; cursors and frontend reconciliation are monotonic.
+
+Typing uses the existing room socket and connection manager, not PostgreSQL. Track each
+connection's expiring presence and aggregate by User so multiple tabs cannot clear each other.
+Throttle starts, expire inactive presence, and clear on disconnect or Ticket closure. Revalidate
+JWT/current database membership and ownership before new-event delivery. UI lifecycle cleanup
+and a client expiry fallback handle missed ephemeral stop events without another socket/polling.
 
 ---
 
@@ -772,6 +791,10 @@ Responsibilities:
   Deliver only to the reader's currently authorized sessions, never other ticket participants.
   Its timestamp is acknowledgement time, not a Ticket activity update; it contains no cursor,
   count, or message content and causes silent list invalidation.
+- B6 reuses ticket-room sockets for validated `typing.start`/`typing.stop` events and
+  server-only `message.read` receipts. Store room authentication for reauthorized delivery;
+  track expiring typing per connection, aggregate per User, and clean up without holding a
+  broadcast lock during disconnect callbacks. Receipts are emitted only after committed reads.
 
 **Limitation:** In-memory connection management only supports broadcasting within one backend process.
 

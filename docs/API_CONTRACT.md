@@ -1040,7 +1040,10 @@ POST /tickets/{id}/read
 - Admin read-only conversations and closed Tickets may be acknowledged. This does not permit
   messaging, change Ticket activity timestamps, or alter anyone else's read state.
 - Emit private `ticket.read` only after a changed cursor commits, to that user's authorized
-  list subscriptions. This is not a sender-visible read receipt. History GET does not mark read.
+  list subscriptions. This list event is not a sender-visible receipt. B6 additionally emits
+  `message.read` to authorized authors of covered messages in the ticket room after commit.
+  Only Agent/Customer readers count as conversation recipients; Admin review does not produce
+  a sender-visible receipt. History GET does not mark read.
 
 **Possible Errors**
 
@@ -1066,7 +1069,8 @@ POST /tickets/{id}/read
   "sender_name": "Customer One",
   "sender_role": "customer",
   "body": "I cannot log in to my account.",
-  "created_at": "2026-10-09T10:01:00Z"
+  "created_at": "2026-10-09T10:01:00Z",
+  "read_by": []
 }
 ```
 
@@ -1080,6 +1084,14 @@ Every displayed message must include:
 B5 adds `sequence`, an opaque positive decimal-string PostgreSQL BIGINT read position. Do not
 convert it to a JavaScript Number; compare decimal lengths/lexical values or use BigInt. It is
 not a sender-visible receipt and does not replace `(created_at, id)` history ordering.
+
+B6 adds `read_by`, an array of `{ "user_id", "name", "role" }` readers. History populates it
+only for messages authored by the requesting user, using one batched lookup of authorized
+Agent/Customer read cursors. Other messages return an empty array. A named recipient appears
+only when their persisted cursor covers that message; the sender and Admin viewers do not
+count. Missing read state, including historical messages, provides no evidence of a read.
+Display "Sent" for a persisted outgoing message without readers, or "Seen by [names]" for
+specific readers. Neither state proves delivery to every recipient or that everyone has read.
 
 ### 9.2 Message History Endpoint
 
@@ -1103,7 +1115,8 @@ GET /tickets/{id}/messages
       "sender_name": "Customer One",
       "sender_role": "customer",
       "body": "I cannot log in to my account.",
-      "created_at": "2026-10-09T10:01:00Z"
+      "created_at": "2026-10-09T10:01:00Z",
+      "read_by": []
     },
     {
       "id": "message-uuid-2",
@@ -1113,7 +1126,8 @@ GET /tickets/{id}/messages
       "sender_name": "Support Agent",
       "sender_role": "agent",
       "body": "I will help you check the issue.",
-      "created_at": "2026-10-09T10:02:00Z"
+      "created_at": "2026-10-09T10:02:00Z",
+      "read_by": []
     }
   ]
 }
@@ -1235,8 +1249,9 @@ events and every successful reconnect; pagination/search/status remain REST resp
 
 B5 adds `ticket.read` using the same minimal envelope. Deliver it only to the User whose read
 cursor advanced, with all existing tenant/role/token checks. For this event, `updated_at` is
-the server acknowledgement time, not a Ticket activity timestamp. No cursor, unread count,
-or read receipt is exposed to other users. Clients silently invalidate their list cache.
+the server acknowledgement time, not a Ticket activity timestamp. This list stream exposes
+no cursor, unread count, or receipt to other users. Clients silently invalidate their list cache.
+B6 sender-scoped receipts use the separate ticket-room `message.read` event below.
 Ticket-room message data additionally includes B5 `sequence`; status payloads remain unchanged.
 
 ---
@@ -1292,7 +1307,8 @@ Reject oversized or empty messages.
     "sender_name": "Customer One",
     "sender_role": "customer",
     "body": "Hello, I need help with my account.",
-    "created_at": "2026-10-09T10:01:00Z"
+    "created_at": "2026-10-09T10:01:00Z",
+    "read_by": []
   }
 }
 ```
@@ -1351,6 +1367,73 @@ Possible errors:
 For rejected authentication handshakes, do not expose protected details through an error event.
 
 WebSocket application errors are not HTTP responses and must not be treated as HTTP status codes.
+
+### WS-05: Typing Presence (B6)
+
+**Direction:** Client -> Server, on the existing authorized ticket socket
+
+```json
+{ "type": "typing.start" }
+```
+
+```json
+{ "type": "typing.stop" }
+```
+
+No extra fields are allowed. The server derives identity from authentication and permits
+starts only for Agents or the owning Customer while the Ticket is not closed. Starts are
+throttled to one per second per connection; the frontend sends at most every two seconds and
+stops after 2.5 seconds of inactivity, blur, hiding the tab, sending, or navigation.
+
+**Direction:** Server -> Other currently authorized ticket viewers
+
+```json
+{
+  "type": "typing.start",
+  "data": {
+    "ticket_id": "ticket-uuid",
+    "user_id": "agent-uuid",
+    "name": "Andi",
+    "role": "agent"
+  }
+}
+```
+
+`typing.stop` uses the same data shape. Typing is ephemeral, expires server-side after five
+seconds without a heartbeat, and expires client-side after six seconds if a stop is missed.
+Disconnect and Ticket closure clear presence. Presence is aggregated per User across sockets;
+stopping one session does not hide another active session. Do not echo presence to that User's
+other sessions. Admins may view authorized presence but cannot start typing. Source and
+recipients are reauthorized; no typing state is persisted in PostgreSQL.
+
+### WS-06: Message Read Receipt (B6)
+
+**Direction:** Server -> Authorized authors of covered messages in the ticket room
+
+```json
+{
+  "type": "message.read",
+  "data": {
+    "ticket_id": "ticket-uuid",
+    "user_id": "customer-uuid",
+    "name": "Customer One",
+    "role": "customer",
+    "last_read_sequence": "101"
+  }
+}
+```
+
+- Read mutation remains authenticated `POST /tickets/{id}/read`; client-sent `message.read`
+  and client-supplied identities/cursors are not accepted on the socket.
+- Emit only after a changed read cursor successfully commits. Reload persisted state and
+  derive the reader's identity server-side. Exclude the reader and Admin readers; deliver only
+  to currently authorized authors of messages covered by that cursor, never unrelated rooms.
+- The cursor belongs to one named Agent/Customer, not every recipient. Apply it only to the
+  current user's outgoing messages through that sequence; preserve other readers independently.
+- Compare decimal-string sequences without Number precision loss and apply monotonically.
+  Reconnect/history refetch restores persisted `read_by` after missed events.
+- This deliberately extends B5 private unread tracking with limited sender-visible receipt
+  evidence; unread counts and the ability to change another user's state remain private.
 
 ---
 

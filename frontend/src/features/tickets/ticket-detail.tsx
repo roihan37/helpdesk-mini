@@ -62,7 +62,7 @@ function TicketWorkspace({ ticket, messages, messagesError, messagesReady, retry
 }) {
   const { user } = useAuth();
   const canSend = Boolean(user && user.role !== "admin" && ticket.status !== "closed");
-  const socket = useTicketSocket(ticket.id, !messagesError, user?.id ?? "");
+  const socket = useTicketSocket(ticket.id, !messagesError, user?.id ?? "", canSend, messages);
   return <div className="page-stack ticket-detail">
     <header className="ticket-header">
       <Link href="/tickets" className="back-link"><Icon name="arrowLeft" />Back to tickets</Link>
@@ -171,9 +171,21 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
               <span className="message-role">{roleLabels[message.sender_role]}</span>
             </header>
             <p className="message-bubble">{message.body}</p>
-            <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
+            <div className="message-meta">
+              <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
+              {message.sender_id === currentUserId ? <span className="message-receipt">
+                {message.read_by?.length
+                  ? `Seen by ${message.read_by.map((reader) => reader.name).join(", ")}`
+                  : "Sent"}
+              </span> : null}
+            </div>
           </div>
         </article>)}
+    </div>
+    <div className="typing-indicator" role="status" aria-live="polite" aria-atomic="true">
+      {ticket.status !== "closed" && socket.typingUsers.length > 0
+        ? `${socket.typingUsers.map((user) => user.name).join(", ")} ${socket.typingUsers.length === 1 ? "is" : "are"} typing…`
+        : ""}
     </div>
     {showNew
       ? <Button className="new-messages" variant="secondary" onClick={jumpToNew}>New messages</Button>
@@ -198,7 +210,11 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
               placeholder="Write a message…"
               aria-describedby="message-help"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                socket.typing(Boolean(event.target.value.trim()));
+              }}
+              onBlur={socket.stopTyping}
               maxLength={5000}
               rows={3}
               disabled={!canSend || socket.connection !== "connected" || socket.sending}

@@ -71,6 +71,19 @@ export interface Message {
   sender_role: Role;
   body: string;
   created_at: string;
+  /** Recipient-specific receipts, returned only for the viewer's own messages. */
+  read_by?: MessageReader[];
+}
+
+export interface MessageReader {
+  user_id: string;
+  name: string;
+  role: "agent" | "customer";
+}
+
+export interface MessageReadData extends MessageReader {
+  ticket_id: string;
+  last_read_sequence: string;
 }
 
 export interface LoginResponse {
@@ -102,6 +115,14 @@ export interface ApiErrorPayload {
 }
 
 export type WebSocketEvent =
+  | {
+    type: "typing.start" | "typing.stop";
+    data: MessageReader & { ticket_id: string };
+  }
+  | {
+    type: "message.read";
+    data: MessageReadData;
+  }
   | {
     type: "message.created";
     data: Message

@@ -3,6 +3,7 @@
 import logging
 import uuid
 from datetime import datetime
+from time import monotonic
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
@@ -14,17 +15,19 @@ from app.api.dependencies import require_roles, resolve_current_user
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.db.session import get_session_factory
-from app.models import UserRole
+from app.models import TicketStatus, UserRole
 from app.schemas.message import (
     MessageCreatedEvent,
     MessagePublic,
     MessageSendEvent,
+    TypingData,
+    TypingEvent,
     WebSocketErrorData,
     WebSocketErrorEvent,
 )
 from app.services.authorization import get_authorized_ticket
 from app.services.messages import create_message
-from app.websocket.events import broadcast_ticket_list_event
+from app.websocket.events import broadcast_ticket_list_event, broadcast_typing
 from app.websocket.manager import connection_manager
 
 logger = logging.getLogger(__name__)
@@ -92,7 +95,8 @@ async def ticket_chat(
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         return
 
-    await connection_manager.connect(ticket_id, websocket)
+    await connection_manager.connect(ticket_id, websocket, token)
+    last_typing_start = float("-inf")
     try:
         while True:
             try:
@@ -108,7 +112,13 @@ async def ticket_chat(
                 continue
 
             try:
-                event = MessageSendEvent.model_validate(payload)
+                is_typing = isinstance(payload, dict) and payload.get("type") in {
+                    "typing.start", "typing.stop",
+                }
+                event = (
+                    TypingEvent.model_validate(payload) if is_typing
+                    else MessageSendEvent.model_validate(payload)
+                )
             except ValidationError:
                 await _send_error(
                     websocket,
@@ -118,6 +128,27 @@ async def ticket_chat(
                 continue
 
             try:
+                if isinstance(event, TypingEvent):
+                    # Limit starts before touching the database; stops are harmless
+                    # no-ops when this connection has no active typing state.
+                    if event.type == "typing.start":
+                        now = monotonic()
+                        if now - last_typing_start < 1:
+                            continue
+                        last_typing_start = now
+                        data = await run_in_threadpool(
+                            _authorize_typing, session_factory, token, ticket_id,
+                        )
+
+                        async def publish(event_type: str, identity: TypingData = data) -> None:
+                            await broadcast_typing(session_factory, event_type, identity)
+
+                        await connection_manager.start_typing(
+                            ticket_id, websocket, data.user_id, publish,
+                        )
+                    else:
+                        await connection_manager.stop_typing(ticket_id, websocket)
+                    continue
                 message, business_id, customer_id, updated_at = await run_in_threadpool(
                     _persist_message,
                     session_factory,
@@ -153,6 +184,7 @@ async def ticket_chat(
                 break
 
             created = MessageCreatedEvent(data=message)
+            await connection_manager.stop_typing(ticket_id, websocket)
             await connection_manager.broadcast(
                 ticket_id, created.model_dump(mode="json")
             )
@@ -197,6 +229,18 @@ def _persist_message(
         ticket = get_authorized_ticket(db, ticket_id, current_user)
         message = create_message(db, ticket_id, current_user, body)
         return message, ticket.business_id, ticket.customer_id, ticket.updated_at
+
+
+def _authorize_typing(
+    session_factory: sessionmaker[Session], token: str, ticket_id: uuid.UUID,
+) -> TypingData:
+    with session_factory() as db:
+        user = resolve_current_user(token, db)
+        ticket = get_authorized_ticket(db, ticket_id, user)
+        require_roles(user, {UserRole.AGENT, UserRole.CUSTOMER})
+        if ticket.status == TicketStatus.CLOSED:
+            raise AppError(status_code=409, code="TICKET_CLOSED", message="Ticket is closed.")
+        return TypingData(ticket_id=ticket_id, user_id=user.id, name=user.name, role=user.role)
 
 
 async def _send_error(

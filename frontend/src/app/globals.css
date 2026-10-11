@@ -218,6 +218,11 @@ td.cell-secondary { display: table-cell; }
 .message-own .message-bubble { border-color: #d8e3ef; border-radius: 8px 0 8px 8px; background: #edf3f9; }
 .message time { display: block; margin-top: 5px; color: var(--color-text-muted); font-size: 11px; }
 .message-own time { text-align: right; }
+.message-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 5px; color: var(--color-text-muted); font-size: 11px; }
+.message-meta time { margin-top: 0; }
+.message-own .message-meta { justify-content: flex-end; }
+.message-receipt { overflow-wrap: anywhere; }
+.typing-indicator { min-height: 28px; padding: 0 24px 8px; color: var(--color-text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .composer { padding: 20px; border-top: 1px solid var(--color-border); background: #fff; }
 .composer form { display: grid; gap: 10px; }
 .composer .textarea { min-height: 88px; }

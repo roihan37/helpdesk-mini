@@ -1128,7 +1128,8 @@ Never run destructive database commands against production without explicit auth
 - Authorize the Ticket by business and Customer ownership before reading or changing state;
   inaccessible Tickets return 404. Resolve the observed Message ID within that Ticket only.
 - Count only other senders' messages and expose only the requesting user's counts. Paginated
-  aggregation repeats tenant/ownership predicates; do not expose another user's cursor.
+  aggregation repeats tenant/ownership predicates. B6's sender-scoped receipt below is the
+  sole intentional exception to cursor privacy; never expose arbitrary users' read state.
 - Serialize acknowledgements and runtime message writes using the Ticket row lock. Advance
   the cursor with a monotonic database upsert; repeated/stale requests are idempotent.
 - Admins and closed-ticket viewers may mark authorized history read; this grants no messaging
@@ -1138,6 +1139,29 @@ Never run destructive database commands against production without explicit auth
   can acknowledge authorized content, but the server cannot prove human attention.
 - Apply the B5 migration through Alembic only after deferred disposable-database verification;
   it has not been applied or tested during this implementation-only phase.
+
+#### B6 Typing and Sender-Scoped Receipts
+
+- Reject extra typing fields and client-sent receipt events. Derive all identities from JWT
+  authentication and current database Users, never the event payload.
+- Revalidate typing starts against current business, Customer ownership, role, and closed
+  status. Only Agents/owning Customers can type. Revalidate token expiration, current role,
+  business, and ownership for typing/receipt recipients; exclude the typing User's own sessions.
+- Limit starts to one per second per connection, expire presence, and aggregate same-user
+  sessions. This is not a global connection/rate limit; many connections still require
+  deployment-level abuse controls. Typing is never stored or logged as message content.
+- A receipt is evidence for one authorized Agent/Customer reader, not all recipients. Admin
+  review and the sender's own reads do not count. History exposes readers only on the current
+  user's outgoing messages; room receipts reach only authorized authors of covered messages.
+- Emit after a changed read cursor commits, reloading persisted state. The existing authorized
+  observed-Message endpoint remains the only mutation path; callers cannot set another User's
+  cursor. Keep list unread counts and private `ticket.read` delivery unchanged.
+- Receipt boundaries and reader names are intentionally disclosed to relevant message authors
+  by B6, not to arbitrary ticket-list subscribers. No password, access/refresh token, full unread
+  state, or unauthorized Ticket data belongs in event payloads or logs.
+- Visible rendered history is the client acknowledgement condition, not proof of human attention.
+  Single-process best-effort events require REST recovery after reconnect. Verification is deferred
+  in `docs/CHAT_PRESENCE_VERIFICATION.md`; no runtime security PASS is claimed in this phase.
 
 ### 12.5 SQL Injection Prevention
 

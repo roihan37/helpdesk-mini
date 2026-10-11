@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.dependencies import require_roles
 from app.core.errors import AppError
-from app.models import Message, TicketStatus, User, UserRole
-from app.schemas.message import MessagePublic
+from app.models import Message, TicketReadState, TicketStatus, User, UserRole
+from app.schemas.message import MessagePublic, MessageReader
 from app.services.authorization import get_authorized_ticket
 
 
@@ -17,14 +17,37 @@ def list_messages(
     db: Session, ticket_id: uuid.UUID, current_user: User
 ) -> list[MessagePublic]:
     """Return deterministic history after enforcing ticket viewer authorization."""
-    get_authorized_ticket(db, ticket_id, current_user)
+    ticket = get_authorized_ticket(db, ticket_id, current_user)
     messages = db.scalars(
         select(Message)
         .options(joinedload(Message.sender))
         .where(Message.ticket_id == ticket_id)
         .order_by(Message.created_at.asc(), Message.id.asc())
     ).all()
-    return [_message_public(message) for message in messages]
+    # One reader query for the whole history, not one query per message. Admin
+    # reviews do not constitute peer receipts; each Agent/Customer has its cursor.
+    readers = db.execute(
+        select(User, TicketReadState.last_read_sequence)
+        .join(TicketReadState, TicketReadState.user_id == User.id)
+        .where(
+            TicketReadState.ticket_id == ticket.id,
+            User.business_id == current_user.business_id,
+            User.id != current_user.id,
+            (User.role == UserRole.AGENT)
+            | ((User.role == UserRole.CUSTOMER) & (User.id == ticket.customer_id)),
+        )
+        .order_by(User.name, User.id)
+    ).all() if any(message.sender_id == current_user.id for message in messages) else []
+    result = []
+    for message in messages:
+        public = _message_public(message)
+        if message.sender_id == current_user.id:
+            public.read_by = [
+                MessageReader(user_id=user.id, name=user.name, role=user.role)
+                for user, sequence in readers if sequence >= message.sequence
+            ]
+        result.append(public)
+    return result
 
 
 def create_message(

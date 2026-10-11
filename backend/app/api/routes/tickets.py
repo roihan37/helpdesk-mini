@@ -32,6 +32,7 @@ from app.services.tickets import (
     update_ticket_with_result,
 )
 from app.websocket.events import (
+    broadcast_message_read,
     broadcast_ticket_list_event,
     broadcast_ticket_status_changed,
 )
@@ -148,6 +149,9 @@ def mark_ticket_conversation_read(
 ) -> TicketReadResponse:
     result = mark_ticket_read(db, ticket_id, current_user, payload.last_message_id)
     if result.changed:
+        background_tasks.add_task(
+            broadcast_message_read, session_factory, result.ticket_id, current_user.id,
+        )
         background_tasks.add_task(
             broadcast_ticket_list_event,
             session_factory,

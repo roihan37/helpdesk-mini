@@ -385,7 +385,25 @@ of the conversation is visible in an active tab. Do not mark from prefetch, hidd
 loading/error states, or while scrolled away from the end. Failed acknowledgement shows a
 safe inline warning with Retry; it must not force the badge to zero. Refetch authoritative
 counts after success, since unseen concurrent messages can remain unread. Abort pending work
-on logout/unmount; do not add polling, another socket, or sender-visible read receipts.
+on logout/unmount; do not add polling or another socket. B5 itself adds no sender-visible
+receipt; the separately approved B6 extension below reuses this acknowledgement.
+
+### B6 Typing and read receipts
+
+Use a reserved-height, muted 12px status line below the conversation, outside the message
+history list, without animations. Show each other active participant once (for example,
+"Andi is typing…"), including multiple participants. Hide own presence and all presence when
+closed. Admins remain read-only. Use the existing room socket, throttle starts to two seconds,
+stop after 2.5 seconds idle/blur/hidden/navigation, and expire incoming presence after six seconds.
+
+Place compact "Sent" or "Seen by [names]" beside the timestamp of persisted outgoing messages.
+"Sent" means the backend committed the message, not that every recipient received it. "Seen"
+names only Agent/Customer readers whose persistent cursor covers that message; another reader's
+state stays independent, and Admin review does not count. Do not imply all recipients have read.
+
+Reuse visible, reconciled history acknowledgement and TanStack Query cache updates. Refresh
+history on reconnect to recover receipts, clear ephemeral state on cleanup/logout, and preserve
+token-refresh behavior without duplicate sockets, polling, extra notifications, or layout redesign.
 
 ### Connection language
 
@@ -471,8 +489,10 @@ The separately approved B4 extension adds live list invalidation and a subtle ge
 notice, not a Notifications Center, unread badges, or a page redesign.
 
 The separately approved B5 extension adds private unread-count badges and authorized read
-acknowledgement as the scoped exception to M6's unread exclusion. Typing indicators and
-sender-visible read receipts remain outside scope.
+acknowledgement as the scoped exception to M6's unread exclusion.
+
+The separately approved B6 extension adds ephemeral typing and recipient-specific sender
+receipts in the existing chat. Other presence features and unrelated bonuses remain outside scope.
 
 ## 12. Design Review Checklist
 
