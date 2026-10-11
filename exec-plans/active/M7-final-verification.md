@@ -1,6 +1,6 @@
 # M7 - Final Verification & Submission
 
-Status: **PHASE 2 IMPLEMENTED — pending Phase 3 verification**
+Status: **PHASE 3 EXECUTED — BLOCKED pending responsive/accessibility and timed demo evidence**
 Milestone owner: Engineering / QA / Security review  
 Scope: Final verification, safe demo data, reproducible setup, demo preparation, and submission readiness.
 
@@ -503,6 +503,162 @@ Acceptance criteria:
 - The final recording visibly demonstrates every required assessment point.
 - No token, secret, password entry, local `.env`, or private browser data is exposed.
 - The final video URL/location is recorded in the submission/README only after it exists and reviewer access is confirmed.
+
+## Phase 3 verification evidence (2026-10-11)
+
+Phase 3 used only disposable PostgreSQL databases named
+`helpdesk_m7_phase3_suite_test`, `helpdesk_m7_phase3_migration_test`,
+`helpdesk_m7_phase3_e2e_test`, and `helpdesk_m7_phase3_clean_test`. The normal development
+database was not migrated, reset, or seeded.
+
+### M7-05 — PASS
+
+Executed from `backend/`:
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv sync --all-groups
+uv run python -m compileall -q app alembic tests
+uv run ruff format --check app alembic tests
+uv run ruff check app alembic tests
+uv run mypy app tests
+uv run alembic heads
+```
+
+Results: dependency sync passed; compile passed; Ruff format reported 54 files already
+formatted; Ruff lint passed; mypy reported success for 52 files; Alembic reported the single
+head `a3930ac451be`. On the dedicated migration database, `upgrade head`, `downgrade base`, and
+the second `upgrade head` all passed. The expected application tables and foreign keys/indexes
+were present after both upgrades, and only `alembic_version` remained at base.
+
+The full PostgreSQL suite was executed with the repository settings redirected in-process to
+`helpdesk_m7_phase3_suite_test`:
+
+```bash
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c \
+  "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; \
+url=make_url(get_settings().database_url).set(database='helpdesk_m7_phase3_suite_test'); \
+assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); \
+test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; \
+os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; \
+get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
+```
+
+Result: **148 passed**, 1 upstream Starlette/httpx deprecation warning, 0 failed. One sandboxed
+attempt could not open local PostgreSQL TCP connections (`Operation not permitted`) and produced
+5 failures/120 setup errors; the identical command passed after the permitted local-database run,
+so this was recorded as an execution-environment failure rather than an application failure.
+
+Executed from `frontend/`:
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm audit --omit=dev
+```
+
+Results: all six commands passed; Vitest **3/3 passed**; production build generated all six
+required routes; audit reported 0 vulnerabilities. Non-blocking output was limited to the
+existing `unrs-resolver` allow-scripts notice and Node module-type warning.
+
+### M7-06 — PARTIAL / NOT RUN for the complete reviewer rehearsal
+
+A new checkout at `/tmp/helpdesk-m7-clean.RddqPU/helpdesk-mini` was created using
+`git clone --no-local`. Following the README, backend and frontend dependency installation,
+fresh migration, seed, backend application import, and production frontend build passed. The
+automated portion took approximately **1 minute 25 seconds**. `uv sync` first hit sandbox cache
+and network restrictions and passed with a temporary writable cache plus approved network access.
+
+This clean-checkout run exposed the seed-email defect described below. The corrected uncommitted
+candidate was then verified in the working tree through seed reruns, real login, REST, WebSocket,
+and browser tests. A second literal Git clone cannot contain an uncommitted fix, so an end-to-end
+timed reviewer rehearsal from a newly cloned final revision remains **NOT RUN** until after human
+review/commit. Consequently the approximately-15-minute target is not claimed as fully passed.
+
+### M7-07 — PASS
+
+Real Next.js, FastAPI, and PostgreSQL were exercised in independent `127.0.0.1` and `localhost`
+browser sessions. Verified:
+
+- seeded Customer login, logout, refresh-cookie session restoration, and registration of a new
+  business/Admin;
+- Admin creation of an Agent, Agent assignment, Agent self-assignment, and role-scoped pages;
+- Customer ticket creation with its first message and persisted history;
+- two-client Customer/Agent chat without refresh, exactly one rendered copy per message;
+- live committed status updates, `resolved -> open` Customer reopen, and the normal lifecycle to
+  `closed`;
+- closed-ticket composer removal plus backend rejection of new messages; and
+- no access token in localStorage, with browser console warning/error review returning empty.
+
+The primary browser-created ticket before disposable database recreation was
+`725cd331-60e8-4c89-a42a-02eb0b578e0b`. Destructive recreation affected only the explicitly named
+E2E test database.
+
+### M7-08 — PASS
+
+An external REST/WebSocket probe against the running application (not mocked) verified owner
+access; cross-customer and cross-business ticket/message 404 responses; missing-auth 401; role and
+assignment 403 responses; refresh-cookie operation; access/refresh token-type rejection for REST
+and WebSocket; unauthorized, cross-tenant, and cross-customer WebSocket handshake rejection;
+authorized persistence/broadcast; cross-room isolation; exactly-once history; closed-ticket
+rejection without persistence; and Admin read-only chat without persistence.
+
+Database inspection found exactly eight Argon2 hashes, no plaintext seed password, and all hashes
+verified against the supplied runtime-only demo password. Tracked-file secret review found only
+documented placeholders/test data; no real `.env`, token, database password, or private key was
+found. Full pytest also covers failed-commit broadcast ordering and concurrent message consistency.
+
+### Confirmed defect fixed
+
+The original `.demo.test` seed addresses are rejected by Pydantic `EmailStr` because `.test` is a
+special-use domain; real login therefore returned 422 for every seeded account. The seed and README
+now use `.helpdeskmini.dev`, and `test_seed_account_emails_are_valid_login_inputs` prevents a
+regression. The seed was run twice after the change and remained exactly 2 businesses, 8 users,
+5 tickets, and 7 messages.
+
+### M7-09 — BLOCKED / partial evidence
+
+At the actual 1440 px browser viewport, ticket list/detail showed no horizontal overflow. DOM and
+keyboard inspection confirmed semantic navigation/main landmarks, headings, labelled controls,
+a skip link, a logical focus move from the Status filter to the first ticket, and a visible 2 px
+focus outline. Browser console warning/error review was clean.
+
+The browser viewport override reported success but retained `window.innerWidth === 1440` even when
+requested at 320 and 768 px. Therefore the required 320/375/768 visual checks, complete
+keyboard-only workflows, formal contrast check, and screen-reader test are **NOT RUN**. Static
+responsive classes and successful build are not counted as viewport evidence.
+
+### M7-10 — BLOCKED / NOT RUN
+
+All seven demo moments were functionally exercised during E2E/security testing, but no single
+timed 3-5 minute rehearsal or final recording was captured. No video URL was added. The recording
+must be produced only after the remaining responsive review and final candidate checkout are
+available, without exposing the demo password, cookies, tokens, or `.env` content.
+
+### Phase 3 disposition
+
+M7-05, M7-07, and M7-08 pass. M7-06 is partially verified; M7-09 and M7-10 lack mandatory manual
+evidence. No mandatory functional or critical security failure remains, but the final verification
+matrix requires these outstanding gates, so the milestone stays active and Phase 3 status is
+**BLOCKED**. Phase 4 has not started.
+
+Remaining manual verification steps for the final candidate:
+
+1. After the reviewed changes are committed, start a stopwatch and clone that exact revision into a
+   new temporary directory. Follow only the README to install dependencies, create a disposable
+   PostgreSQL database, migrate, seed twice, start both applications, log in with a seeded account,
+   and exchange one persisted WebSocket message. Record the elapsed time and every command/output.
+2. In browser responsive/device mode, visit all six required routes at 320, 375, 768, and 1440 px.
+   For each role, check horizontal overflow, navigation, forms, ticket list/detail, action panel,
+   chat history/composer, loading/error/empty/disconnected states, and closed-ticket behavior.
+3. Complete registration, login, ticket creation, ticket actions, chat, logout, and navigation using
+   only the keyboard. Confirm visible focus, labels and announcements with a screen reader, and run
+   a contrast audit. Record the browser/version and any deviations.
+4. Rehearse and record the seven-step demo from the seeded final candidate in one 3-5 minute run.
+   Confirm the recording reveals no password entry, cookie/token, `.env`, or private browser data,
+   and verify reviewer access before adding its location to submission documentation.
 
 ### M7-11 — Audit submission and repository hygiene
 

@@ -120,14 +120,14 @@ is run. The password is intentionally not hardcoded in this repository.
 
 | Business | Slug | Role | Email |
 |---|---|---|---|
-| Northstar Support | `demo-northstar` | Admin | `admin@northstar.demo.test` |
-| Northstar Support | `demo-northstar` | Agent | `agent@northstar.demo.test` |
-| Northstar Support | `demo-northstar` | Customer | `customer1@northstar.demo.test` |
-| Northstar Support | `demo-northstar` | Customer | `customer2@northstar.demo.test` |
-| Orbit Services | `demo-orbit` | Admin | `admin@orbit.demo.test` |
-| Orbit Services | `demo-orbit` | Agent | `agent@orbit.demo.test` |
-| Orbit Services | `demo-orbit` | Customer | `customer1@orbit.demo.test` |
-| Orbit Services | `demo-orbit` | Customer | `customer2@orbit.demo.test` |
+| Northstar Support | `demo-northstar` | Admin | `admin@northstar.helpdeskmini.dev` |
+| Northstar Support | `demo-northstar` | Agent | `agent@northstar.helpdeskmini.dev` |
+| Northstar Support | `demo-northstar` | Customer | `customer1@northstar.helpdeskmini.dev` |
+| Northstar Support | `demo-northstar` | Customer | `customer2@northstar.helpdeskmini.dev` |
+| Orbit Services | `demo-orbit` | Admin | `admin@orbit.helpdeskmini.dev` |
+| Orbit Services | `demo-orbit` | Agent | `agent@orbit.helpdeskmini.dev` |
+| Orbit Services | `demo-orbit` | Customer | `customer1@orbit.helpdeskmini.dev` |
+| Orbit Services | `demo-orbit` | Customer | `customer2@orbit.helpdeskmini.dev` |
 
 The manifest also creates five tickets and seven messages: a Northstar open/unassigned chat
 ticket (`30000000-0000-4000-8000-000000000001`), an assigned ticket with history, resolved and

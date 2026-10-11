@@ -19,6 +19,7 @@ from app.scripts.seed_demo import (
     seed_demo,
     validate_database_target,
 )
+from app.schemas.auth import LoginRequest
 
 PASSWORD = "local-demo-password-2026"
 BUSINESS_IDS = tuple(spec.id for spec in BUSINESS_SPECS)
@@ -27,6 +28,12 @@ USER_IDS = tuple(spec.id for spec in USER_SPECS)
 USER_EMAILS = tuple(spec.email for spec in USER_SPECS)
 TICKET_IDS = tuple(spec.id for spec in TICKET_SPECS)
 MESSAGE_IDS = tuple(spec.id for spec in MESSAGE_SPECS)
+
+
+def test_seed_account_emails_are_valid_login_inputs() -> None:
+    for spec in USER_SPECS:
+        payload = LoginRequest(email=spec.email, password=PASSWORD)
+        assert str(payload.email) == spec.email
 
 
 def _remove_demo_records(engine: Engine) -> None:
