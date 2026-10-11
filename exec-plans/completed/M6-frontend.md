@@ -2,12 +2,13 @@
 
 ## Status
 
-**PHASE 3 VALIDATED WITH OPEN VERIFICATION GAPS — BLOCKED**
+**COMPLETE — PHASE 4 VERIFIED**
 
 Phase 1 planning date: 2026-10-10
 
-This document remains active through M6 verification. Phase 2 frontend implementation is complete;
-the browser integration matrix and milestone completion remain reserved for later review phases.
+M6 implementation and the mandatory browser integration matrix are complete. Phase 4 verified the
+remaining responsive, WebSocket recovery, role-permission, and regression-test evidence without
+starting M7.
 
 The supplied Phase 1 brief ends mid-sentence after requiring tasks to be organized in dependency
 order. The complete preceding requirements are actionable; the ordered tasks below use those
@@ -747,5 +748,147 @@ plan.
 - If backend regressions are required for Phase 4, configure a disposable PostgreSQL
   `TEST_DATABASE_URL` and run M2-M5 tests without touching valuable data.
 
-Do not move this plan to `completed/`, start Phase 4 or M7, commit, or push while these Phase 3
-verification gaps remain.
+At the Phase 3 close, this plan remained active and M7 was not started because the verification gaps
+above still required the Phase 4 evidence recorded below.
+
+## 15. Phase 4 Final Review and Milestone Closure
+
+Review date: 2026-10-11
+
+Milestone result: **COMPLETE**
+
+Phase 4 re-reviewed the implementation, Phase 3 evidence, security and API contracts, responsive
+behavior, and all mandatory M6 acceptance criteria. The remaining Phase 3 verification gaps were
+exercised with real browser sessions and a real FastAPI/PostgreSQL stack. No M6-scoped source defect
+was confirmed, so no frontend or backend implementation file was changed.
+
+### Isolated verification environment
+
+- Frontend checks ran from the repository's `frontend/` workspace.
+- Backend regressions ran against a newly created disposable PostgreSQL database named
+  `helpdesk_m6_phase4_test`; its name was asserted to end in `_test` before test execution.
+- The disposable database was migrated to Alembic head before the final regression run.
+- Browser verification used uniquely named disposable users and Tickets. No valuable database was
+  reset, downgraded, or destructively cleaned.
+- Temporary test services used ports 3001, 8001, and 9223. The user's existing services on ports
+  3000 and 8000 were not stopped or replaced.
+
+### Exact validation commands and results
+
+```bash
+cd frontend
+npm run lint
+npm test
+npm run build
+npm run typecheck
+
+cd ../backend
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache \
+DATABASE_URL=<guarded-disposable-helpdesk_m6_phase4_test-url> \
+TEST_DATABASE_URL=<guarded-disposable-helpdesk_m6_phase4_test-url> \
+M1_TEST_DATABASE_URL=<guarded-disposable-helpdesk_m6_phase4_test-url> \
+uv run alembic upgrade head
+
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c \
+"import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
+
+cd ..
+git diff --check
+git status --short
+```
+
+- **PASS** — ESLint completed with 0 errors.
+- **PASS** — frontend tests completed with 3 passed and 0 failed. Node emitted the existing
+  non-blocking `MODULE_TYPELESS_PACKAGE_JSON` warning.
+- **PASS** — the production webpack build compiled all eight application routes, including all six
+  mandatory product routes.
+- **PASS** — strict TypeScript checking completed with 0 errors when run after the build. One
+  initial concurrent typecheck collided with Next.js regenerating `.next/types`; the required
+  sequential rerun passed and did not reveal a source defect.
+- **PASS** — Alembic upgraded the disposable database to revision `a3930ac451be`.
+- **PASS** — the full backend M2-M5 regression suite completed with 139 passed, 0 failed, and one
+  upstream TestClient deprecation warning in 4.20 seconds.
+- **PASS** — final `git diff --check` reported no whitespace errors.
+- **NOT RUN** — a dedicated checked-in browser-E2E command because the repository has no E2E
+  framework. Mandatory flows were instead exercised in actual browser sessions against the real
+  backend and PostgreSQL database; build or mocks were not treated as E2E proof.
+- **NOT RUN** — a screen-reader product test with VoiceOver or another assistive technology.
+  Semantic accessibility-tree inspection and keyboard/focus testing passed, with no critical
+  accessibility blocker found.
+
+Before migration, an intentionally fresh database correctly failed because its schema did not yet
+exist. A sandboxed backend run also could not open the local PostgreSQL socket. These setup results
+were not product failures: the guarded disposable database was migrated, then the complete suite
+passed outside that restriction without changing application code.
+
+### Browser, responsive, and accessibility evidence
+
+- **PASS** — exact 320x720, 375x812, 768x900, and 1440x900 viewport checks had matching page
+  `scrollWidth` and `clientWidth`; no page-level horizontal overflow was present.
+- **PASS** — the fixed desktop sidebar, tablet/mobile drawer, Ticket detail columns, mobile detail
+  block, action panel, and chat composer changed at the documented breakpoints without clipping.
+- **PASS** — the mobile drawer exposed dialog semantics, trapped focus, locked body scrolling,
+  closed with Escape, and restored focus to the navigation trigger.
+- **PASS** — keyboard focus was visibly outlined. Forms, navigation, headings, dialogs, status
+  messages, alerts, and controls exposed meaningful semantics and labels in the browser
+  accessibility tree.
+- **PASS** — Admin direct access showed Team navigation and user-management controls. Direct
+  non-Admin access to `/admin/users` rendered the generic forbidden state.
+- **PASS** — on an open Ticket, Admin chat remained read-only while assignment and status controls
+  remained available. Admin successfully assigned the disposable Agent and received the confirmed
+  updated state.
+
+### WebSocket interruption and cleanup evidence
+
+- **PASS** — an authorized Customer detail view began in `Live` state with the composer enabled.
+- **PASS** — stopping the isolated backend changed the UI to `Reconnecting...`, disabled message
+  submission, bounded its retry sequence, and then displayed `Connection lost` with a manual Retry
+  action.
+- **PASS** — after the backend returned, Retry restored `Live` state and re-enabled the composer.
+  The existing hook refetched persisted history on connection and deduplicated by Message ID.
+- **PASS** — navigating away from Ticket detail removed the mounted room UI. Source review and the
+  passing backend WebSocket cleanup regressions confirm socket/timer cleanup and room removal.
+- **PASS** — policy close `1008` is classified as unauthorized and does not reconnect; this is
+  covered by focused implementation review and the passing backend WebSocket authorization tests.
+
+### Acceptance criteria status
+
+| # | Mandatory M6 criterion | Result |
+|---|---|---|
+| 1 | Six required routes and documented access model | PASS |
+| 2 | Memory-only access token and HttpOnly refresh cookie | PASS |
+| 3 | Refresh bootstrap and coalesced single retry | PASS |
+| 4 | Protected redirects and backend-authoritative authorization | PASS |
+| 5 | Admin, Agent, and Customer permission matrix | PASS |
+| 6 | Responsive role-scoped Ticket list and status filter | PASS |
+| 7 | Customer Ticket creation with first-message payload | PASS |
+| 8 | Persisted REST history before authorized Ticket socket | PASS |
+| 9 | Two-client persisted messages and committed status events | PASS |
+| 10 | Deduplication, reconnect reconciliation, and cleanup | PASS |
+| 11 | Admin/closed read-only and permitted Agent/Customer messaging | PASS |
+| 12 | Backend-supported assignment and state controls | PASS |
+| 13 | Admin Agent/Customer list and creation | PASS |
+| 14 | HTTP, network, loading, empty, pending, and mobile states | PASS |
+| 15 | Safe text rendering, labels, focus, and responsive layouts | PASS |
+| 16 | Static checks, production build, and mandatory browser matrix | PASS |
+
+Acceptance total: **16 PASS / 0 FAIL / 0 NOT RUN**.
+
+### Resolved gaps, limitations, and M7 handoff
+
+- All Phase 3 blockers were resolved by Phase 4 verification; no implementation fix or weakened
+  assertion was required.
+- The frontend still has only three focused domain tests and no checked-in browser-E2E suite. M7
+  should decide whether to automate the verified demo matrix without changing product behavior.
+- A dedicated assistive-technology pass remains useful quality evidence, although keyboard,
+  semantics, focus, contrast/source, and responsive checks found no critical accessibility issue.
+- M5's documented single-process in-memory WebSocket limitation remains: production-like runs must
+  use one backend worker unless a shared connection/broadcast layer is added in a later approved
+  scope.
+- Logout expires the refresh cookie and clears frontend state, but already issued stateless JWTs
+  remain valid until expiration.
+- M7 demo preparation should preserve the verified two-browser Customer/Agent chat, committed status
+  synchronization, Admin assignment, and cross-tenant generic-not-found scenarios. This is a
+  handoff requirement only; no M7 plan or implementation was started here.
+
+M6 is complete and may be moved to `exec-plans/completed/`. No commit or push was performed.

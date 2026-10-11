@@ -9,9 +9,9 @@ migration, M2 provides verified JWT authentication plus tenant-scoped Admin user
 M3 provides verified reusable role and ticket-resource authorization policies. M4 provides
 verified Ticket REST workflows for creation, scoped listing/detail, assignment, and status
 lifecycle management. M5 provides verified persistent message history and authenticated,
-ticket-scoped WebSocket chat with post-commit message and status events. M6 Phase 2 provides the
-implemented Next.js authentication, Ticket, real-time chat, and Admin Team interfaces; full browser
-integration verification remains pending Phase 3.
+ticket-scoped WebSocket chat with post-commit message and status events. M6 provides the verified
+responsive Next.js authentication, Ticket, real-time chat, and Admin Team interfaces, including
+real-browser role, tenant-isolation, reconnect, and two-client WebSocket workflows.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
@@ -134,10 +134,14 @@ npm run build
 npm audit --omit=dev
 ```
 
-M6 Phase 2 verified the clean install, lint, strict typecheck, three focused domain tests, production
-webpack build, production dependency audit, and HTTP route startup smoke test. The full role,
-tenant-isolation, responsive, and two-browser WebSocket matrix remains pending Phase 3. The
-production build intentionally uses Next.js's webpack builder.
+M6 Phase 4 verified ESLint, strict typecheck, three focused domain tests, and the production webpack
+build. It also exercised the six required routes, role and tenant isolation, Customer Ticket
+creation, Admin assignment, Agent status workflows, exact 320/375/768/1440px layouts, WebSocket
+disconnect/retry, and two-browser Customer/Agent chat against FastAPI and PostgreSQL. The full
+backend regression suite passed 139 tests on a migrated disposable database. No checked-in browser
+E2E framework exists; the mandatory matrix was run through actual browser sessions rather than
+inferred from unit tests or build success. Exact evidence is in the completed M6 execution plan.
+The production build intentionally uses Next.js's webpack builder.
 
 ## Technical Decisions
 
@@ -174,6 +178,9 @@ production build intentionally uses Next.js's webpack builder.
   and remains an application-service invariant. Future Ticket writers must follow the same row-lock
   discipline used by M4 for competing state changes.
 - `npm audit --omit=dev` reports no runtime vulnerabilities. The full audit reports a high-severity `braces` advisory through the Next.js ESLint development-tooling chain; npm's proposed automatic fix is a breaking downgrade of `eslint-config-next`, so it was not applied.
+- The mandatory M6 browser matrix was verified manually through browser automation, but the
+  repository does not yet include a dedicated browser-E2E suite. A dedicated VoiceOver or other
+  assistive-technology pass was not run; keyboard, focus, semantics, and responsive checks passed.
 - Database startup requires a locally provisioned PostgreSQL role and database matching `backend/.env`.
 
 ## Milestone Roadmap
@@ -186,5 +193,5 @@ production build intentionally uses Next.js's webpack builder.
 | M3 | Comprehensive tenant-authorization audit and isolation tests | Complete |
 | M4 | Ticket management | Complete |
 | M5 | WebSocket chat | Complete |
-| M6 | Required frontend flows | Phase 2 implemented; Phase 3 verification pending |
+| M6 | Required frontend flows | Complete |
 | M7 | Final tests, seed data, documentation, and demo preparation | Not started |
