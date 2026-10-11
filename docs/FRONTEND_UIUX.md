@@ -259,7 +259,10 @@ explicit retry. Do not store message drafts beyond the mounted session.
 - Render bodies as React text with preserved line breaks; never interpret HTML or Markdown.
 - Initial history is ordered by `(created_at, id)`. On first load, move to the newest message without
   stealing keyboard focus. New events auto-scroll only when the reader is already near the bottom;
-  otherwise show “New messages” control.
+  otherwise show “New messages” control. Track the position before new content is appended,
+  follow image resizing while at the bottom, and hide the control automatically on return
+  near the bottom without requiring a click. Anchor the control at the bottom center of the
+  message viewport, independent of composer height.
 - An empty history state says “No messages yet”; it must not imply messages can always be sent.
 
 #### Composer
@@ -372,9 +375,9 @@ Keep bounded reconnect backoff and refresh before token expiry; never expose tok
 
 ### B5 Private unread badges
 
-The separately approved B5 extension uses the existing `count-label` styling beside each
-desktop Ticket subject and in each mobile card's badge row, without a page redesign or new
-design tokens. Hide zero counts; provide an accessible "N unread messages" label.
+The separately approved B5 extension uses a compact soft-blue badge with blue numerals to the
+right of each Ticket subject on desktop and mobile, without a page redesign or new design
+tokens. Hide zero counts; provide an accessible "N unread messages" label.
 
 Reuse the B4 session subscription and TanStack Query list invalidation for incoming activity.
 Private `ticket.read` events synchronize only the same user's sessions and produce no activity
@@ -396,7 +399,9 @@ history list, without animations. Show each other active participant once (for e
 closed. Admins remain read-only. Use the existing room socket, throttle starts to two seconds,
 stop after 2.5 seconds idle/blur/hidden/navigation, and expire incoming presence after six seconds.
 
-Place compact "Sent" or "Seen by [names]" beside the timestamp of persisted outgoing messages.
+Place a muted single-check icon for "Sent" or blue double-check icon for "Seen by [names]"
+beside the timestamp of persisted outgoing messages. Keep the full status and specific reader
+names in an accessible label and tooltip; do not add an unverified "Delivered" state.
 "Sent" means the backend committed the message, not that every recipient received it. "Seen"
 names only Agent/Customer readers whose persistent cursor covers that message; another reader's
 state stays independent, and Admin review does not count. Do not imply all recipients have read.

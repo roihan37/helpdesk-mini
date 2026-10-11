@@ -1,7 +1,8 @@
 "use client";
 
 import { Icon } from "@/components/icon";
-import { Alert, Avatar, Badge, Button, EmptyState, Field, Input, LoadingPanel, Select } from "@/components/ui";
+import { Alert, Avatar, Badge, Button, EmptyState, Field, Input, Select } from "@/components/ui";
+import { TeamSkeleton } from "@/components/loading-skeletons";
 import { ProtectedGuard } from "@/features/auth/guards";
 import { ApiError, apiRequest, friendlyError, validationErrors } from "@/lib/api";
 import { formatDateTime, roleLabels } from "@/lib/domain";
@@ -46,7 +47,7 @@ function TeamWorkspace() {
         </div>
         <span className="panel-description">Agents and Customers</span>
       </div>
-      {users.isLoading ? <LoadingPanel label="Loading team…" /> : null}
+      {users.isLoading ? <TeamSkeleton /> : null}
       {users.isError
         ? <div className="panel-feedback">
           <Alert tone="error">Team members could not be loaded. <Button variant="quiet" onClick={() => void users.refetch()}>Retry</Button></Alert>

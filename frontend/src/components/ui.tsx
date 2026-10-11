@@ -48,12 +48,6 @@ export function Badge({ children, kind }: {
 }) {
   return <span className={`badge badge-${kind}`}>{children}</span>;
 }
-export function LoadingPanel({ label = "Loading…" }: { label?: string }) {
-  return <div className="loading-panel" role="status">
-    <span className="spinner" aria-hidden="true" />
-    <span>{label}</span>
-  </div>;
-}
 export function Skeleton({ className = "" }: { className?: string }) {
   return <span className={`skeleton ${className}`} aria-hidden="true" />;
 }

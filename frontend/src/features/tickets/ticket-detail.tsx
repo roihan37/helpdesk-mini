@@ -1,7 +1,8 @@
 "use client";
 
 import { Icon } from "@/components/icon";
-import { Alert, Avatar, Badge, Button, EmptyState, LoadingPanel, Select, Textarea } from "@/components/ui";
+import { Alert, Avatar, Badge, Button, EmptyState, Select, Skeleton, Textarea } from "@/components/ui";
+import { TicketDetailSkeleton } from "@/components/loading-skeletons";
 import { useAuth } from "@/features/auth/auth-provider";
 import { ApiError, apiRequest, friendlyError, onAccessTokenChanged } from "@/lib/api";
 import { formatDateTime, mergeMessages, nextTicketStatus, roleLabels, statusLabels } from "@/lib/domain";
@@ -13,8 +14,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import Image from "next/image";
 import { ChatImage } from "@/features/tickets/chat-image";
+import { createChatScroll } from "@/features/tickets/chat-scroll";
 import { useParams } from "next/navigation";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export function TicketDetailPage() {
   const params = useParams<{ id: string }>();
@@ -29,7 +31,7 @@ export function TicketDetailPage() {
     queryFn: () => apiRequest<Message[]>(`/tickets/${encodeURIComponent(ticketId)}/messages`),
     enabled: Boolean(ticket.data)
   });
-  if (ticket.isLoading || (ticket.data && messages.isLoading)) return <LoadingPanel label="Loading ticket and conversation…" />;
+  if (ticket.isLoading || (ticket.data && messages.isLoading)) return <TicketDetailSkeleton />;
   if (ticket.error instanceof ApiError && ticket.error.status === 404) return <NotFound />;
   if (ticket.isError) return <div className="centered-state">
     <Alert tone="error">This ticket could not be loaded. Try again.</Alert>
@@ -131,7 +133,7 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
   const fileInput = useRef<HTMLInputElement>(null);
   const upload = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const previousCount = useRef(0);
+  const chatScroll = useRef<ReturnType<typeof createChatScroll> | null>(null);
   const read = useTicketRead(ticket.id, currentUserId, messages, messagesReady, listRef);
   const [showNew, setShowNew] = useState(false);
   useEffect(() => {
@@ -149,13 +151,18 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
   useEffect(() => {
     if (!canSend) { upload.current?.abort(); setImage(null); socket.stopTyping(); }
   }, [canSend, socket.stopTyping]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 96;
-    if (previousCount.current === 0 || nearBottom) list.scrollTop = list.scrollHeight;
-    else if (messages.length > previousCount.current) setShowNew(true);
-    previousCount.current = messages.length;
+    const scroll = createChatScroll(list, setShowNew);
+    chatScroll.current = scroll;
+    return () => {
+      scroll.dispose();
+      chatScroll.current = null;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    chatScroll.current?.sync(messages.length);
   }, [messages.length]);
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -192,8 +199,7 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
     }
   }
   function jumpToNew() {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-    setShowNew(false);
+    chatScroll.current?.jumpToBottom();
   }
   return <section className="conversation" aria-labelledby="conversation-title">
     <header className="conversation-heading">
@@ -211,42 +217,47 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
     {read.error && !messagesError ? <div className="panel-feedback">
       <Alert tone="warning">{read.error} <Button variant="quiet" onClick={read.retry}>Retry</Button></Alert>
     </div> : null}
-    <div className="message-list" ref={listRef}>
-      {messages.length === 0 && !messagesError
-        ? <EmptyState title="No messages yet">Conversation history will appear here.</EmptyState>
-        : messages.map((message) => <article
-          key={message.id}
-          className={message.sender_id === currentUserId ? "message message-own" : "message"}
-        >
-          <Avatar name={message.sender_name} small />
-          <div className="message-content">
-            <header>
-              <strong>{message.sender_name}</strong>
-              <span className="message-role">{roleLabels[message.sender_role]}</span>
-            </header>
-            {message.attachment ? <div className="message-bubble">
-              <ChatImage ticketId={ticket.id} attachment={message.attachment} />
-              {message.body ? <p className="attachment-caption">{message.body}</p> : null}
-            </div> : message.body ? <p className="message-bubble">{message.body}</p> : null}
-            <div className="message-meta">
-              <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
-              {message.sender_id === currentUserId ? <span className="message-receipt">
-                {message.read_by?.length
-                  ? `Seen by ${message.read_by.map((reader) => reader.name).join(", ")}`
-                  : "Sent"}
-              </span> : null}
+    <div className="conversation-messages">
+      <div className="message-list" ref={listRef}>
+        {messages.length === 0 && !messagesError
+          ? <EmptyState title="No messages yet">Conversation history will appear here.</EmptyState>
+          : messages.map((message) => <article
+            key={message.id}
+            className={message.sender_id === currentUserId ? "message message-own" : "message"}
+          >
+            <Avatar name={message.sender_name} small />
+            <div className="message-content">
+              <header>
+                <strong>{message.sender_name}</strong>
+                <span className="message-role">{roleLabels[message.sender_role]}</span>
+              </header>
+              {message.attachment ? <div className="message-bubble">
+                <ChatImage ticketId={ticket.id} attachment={message.attachment} />
+                {message.body ? <p className="attachment-caption">{message.body}</p> : null}
+              </div> : message.body ? <p className="message-bubble">{message.body}</p> : null}
+              <div className="message-meta">
+                <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
+                {message.sender_id === currentUserId ? <span
+                  className={`message-receipt${message.read_by?.length ? " message-receipt-seen" : ""}`}
+                  role="img"
+                  aria-label={message.read_by?.length ? `Seen by ${message.read_by.map((reader) => reader.name).join(", ")}` : "Sent"}
+                  title={message.read_by?.length ? `Seen by ${message.read_by.map((reader) => reader.name).join(", ")}` : "Sent"}
+                >
+                  <Icon name={message.read_by?.length ? "checkDouble" : "check"} />
+                </span> : null}
+              </div>
             </div>
-          </div>
-        </article>)}
+          </article>)}
+      </div>
+      {showNew
+        ? <Button className="new-messages" variant="secondary" onClick={jumpToNew}>New messages</Button>
+        : null}
     </div>
     <div className="typing-indicator" role="status" aria-live="polite" aria-atomic="true">
       {ticket.status !== "closed" && socket.typingUsers.length > 0
         ? `${socket.typingUsers.map((user) => user.name).join(", ")} ${socket.typingUsers.length === 1 ? "is" : "are"} typing…`
         : ""}
     </div>
-    {showNew
-      ? <Button className="new-messages" variant="secondary" onClick={jumpToNew}>New messages</Button>
-      : null}
     <div className="composer">
       {uploadError ? <Alert tone="error">{uploadError}</Alert> : null}
       {uploading ? <div role="status" className="attachment-progress"><progress aria-label="Uploading image" /> Uploading image…</div> : null}
@@ -275,9 +286,16 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
                 setUploadError(""); setImage(file);
               }} />
             {image ? <div className="attachment-preview">
-              {preview ? <Image src={preview} alt="Selected image preview" width={80} height={80} unoptimized /> : null}
-              <span>{image.name}</span>
-              <Button type="button" variant="quiet" disabled={uploading} onClick={() => setImage(null)}>Remove image</Button>
+              <div className="attachment-preview-thumbnail">
+                {preview ? <Image src={preview} alt="Selected image preview" width={80} height={80} unoptimized /> : <Skeleton className="skeleton-image" />}
+              </div>
+              <div className="attachment-preview-info">
+                <span className="attachment-preview-name" title={image.name}>{image.name}</span>
+                <span className="attachment-preview-meta">{Math.ceil(image.size / 1024)} KB · {uploading ? "Uploading…" : "Ready to send"}</span>
+              </div>
+              <Button type="button" variant="quiet" className="image-preview-close" aria-label="Remove selected image" title="Remove selected image" disabled={uploading} onClick={() => setImage(null)}>
+                <Icon name="close" />
+              </Button>
             </div> : null}
             <label htmlFor="message-body">Reply to conversation</label>
             <Textarea
@@ -306,15 +324,26 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
                   ? "Enter to send · Shift+Enter for a new line"
                   : "Messages are available when the connection is live."}
               </span>
-              <Button type="button" variant="secondary" onClick={() => fileInput.current?.click()}
-                disabled={!canSend || socket.connection !== "connected" || socket.sending || uploading}>Attach image</Button>
-              <Button
-                type="submit"
-                disabled={(!draft.trim() && !image) || !canSend || socket.connection !== "connected" || socket.sending || uploading}
-              >
-                <Icon name="send" />
-                {socket.sending ? "Sending…" : "Send message"}
-              </Button>
+              <div className="composer-actions">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="composer-attach"
+                  aria-label="Attach image"
+                  title="Attach image"
+                  onClick={() => fileInput.current?.click()}
+                  disabled={!canSend || socket.connection !== "connected" || socket.sending || uploading}
+                >
+                  <Icon name="attachment" />
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={(!draft.trim() && !image) || !canSend || socket.connection !== "connected" || socket.sending || uploading}
+                >
+                  <Icon name="send" />
+                  {socket.sending ? "Sending…" : "Send message"}
+                </Button>
+              </div>
             </div>
           </form>}
     </div>
@@ -388,7 +417,10 @@ function TicketDetails({ ticket }: { ticket: TicketDetail }) {
       {canAssign
         ? <div className="action-block">
           <label htmlFor={`assign-agent-${id}`}>Assign agent</label>
-          <Select
+          {agents.isLoading ? <div role="status">
+            <span className="sr-only">Loading agents…</span>
+            <Skeleton className="skeleton-control" />
+          </div> : <Select
             id={`assign-agent-${id}`}
             value={ticket.assigned_agent_id ?? ""}
             disabled={agents.isLoading || updateTicket.isPending}
@@ -398,7 +430,7 @@ function TicketDetails({ ticket }: { ticket: TicketDetail }) {
           >
             <option value="" disabled>Select an agent</option>
             {agents.data?.filter((person) => person.role === "agent").map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-          </Select>
+          </Select>}
           {agents.isError ? <span className="field-error">Agents could not be loaded.</span> : null}
         </div>
         : null}
