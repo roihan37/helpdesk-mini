@@ -112,6 +112,7 @@ def main() -> int:
             "8000",
             "--workers",
             "1",
+            "--no-proxy-headers",
         ],
     )
     return 0

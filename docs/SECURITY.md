@@ -1624,11 +1624,36 @@ Immediate revocation is not supported without additional server-side token state
 
 In-memory WebSocket broadcasts do not work across multiple backend processes.
 
-### 21.3 No Advanced Rate Limiting
+### 21.3 In-Memory Login Rate Limiting
 
-Login rate limiting is a bonus feature in the assessment.
+`POST /auth/login` uses a thread-safe sliding-window limiter:
 
-It may be added after mandatory features are complete.
+- Five failed credential checks per 900 seconds, keyed by trimmed/lowercase email + client IP.
+- Thirty body-parsed login requests per IP per 60 seconds, counting successes, schema-invalid
+  payloads, and requests rejected by the credential limit. IP-rejected requests do not extend
+  the window. Malformed JSON is rejected before dependencies run and is not counted; this
+  limiter is not a general HTTP denial-of-service control.
+- Configurable positive integers: `LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_FAILED_WINDOW_SECONDS`,
+  `LOGIN_IP_MAX_REQUESTS`, and `LOGIN_IP_WINDOW_SECONDS`.
+- Generic 401 for ordinary invalid credentials, identically for registered and unknown emails.
+  A limited request receives the existing error envelope with `AUTH_RATE_LIMITED` (429), null
+  details, and a positive, rounded-up `Retry-After` in seconds. No credentials are logged.
+- Concurrent password checks reserve slots under a lock before hashing outside the lock. Failed
+  checks count on completion; successful checks release their slots without clearing failures.
+  Internal errors release reservations without counting as invalid credentials. A monotonic
+  clock prevents wall-clock adjustments from changing windows.
+- Expired keys are pruned; state is bounded to 10,000 live keys. At capacity, new keys fail closed
+  rather than evicting existing limits.
+
+Use the ASGI peer IP. The application never reads client-controlled forwarding headers for
+limiting. Docker startup and the documented manual Uvicorn command disable proxy-header
+processing. A future proxy deployment must explicitly allow only trusted proxy addresses before
+enabling that processing; trusting all addresses (`*`) permits spoofing and is prohibited.
+
+Limits are per backend process and reset on restart. Multiple workers/instances need a shared
+limiter before claiming a global limit. Shared NAT/proxy IPs share the request cap; rotating IPs
+are not fully mitigated. In-flight checks can produce a conservative Retry-After. This is not
+distributed brute-force or denial-of-service protection.
 
 ### 21.4 No Distributed Security Infrastructure
 

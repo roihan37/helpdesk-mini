@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = Field(gt=0)
     refresh_cookie_secure: bool
     cors_origins: Annotated[list[AnyHttpUrl], NoDecode]
+    login_max_failed_attempts: int = Field(default=5, gt=0)
+    login_failed_window_seconds: int = Field(default=900, gt=0)
+    login_ip_max_requests: int = Field(default=30, gt=0)
+    login_ip_window_seconds: int = Field(default=60, gt=0)
 
     model_config = SettingsConfigDict(
         env_file=".env",

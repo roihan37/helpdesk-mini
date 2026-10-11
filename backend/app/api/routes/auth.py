@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.login_rate_limit import LoginRateLimiter, get_login_rate_limiter
 from app.db.session import get_db
 from app.models import User
 from app.schemas.auth import (
@@ -67,6 +68,16 @@ def _validate_refresh_origin(request: Request) -> None:
         )
 
 
+def _limit_login_ip(
+    request: Request,
+    limiter: Annotated[LoginRateLimiter, Depends(get_login_rate_limiter)],
+) -> str:
+    # ASGI peer only. Forwarded headers must not be trusted by the server by default.
+    client_ip = request.client.host if request.client is not None else "unknown"
+    limiter.check_ip(client_ip)
+    return client_ip
+
+
 @router.post(
     "/register-business",
     response_model=RegistrationResponse,
@@ -89,14 +100,29 @@ def register_business_endpoint(
 @router.post(
     "/login",
     response_model=TokenPairResponse,
-    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        401: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        429: {
+            "model": ErrorResponse,
+            "headers": {
+                "Retry-After": {
+                    "description": "Seconds before retrying login (rounded up).",
+                    "schema": {"type": "integer", "minimum": 1},
+                }
+            },
+        },
+    },
 )
 def login(
     payload: LoginRequest,
     response: Response,
+    client_ip: Annotated[str, Depends(_limit_login_ip)],
+    limiter: Annotated[LoginRateLimiter, Depends(get_login_rate_limiter)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenPairResponse:
-    tokens = authenticate_user(db, str(payload.email), payload.password)
+    with limiter.attempt(str(payload.email), client_ip):
+        tokens = authenticate_user(db, str(payload.email), payload.password)
     _set_refresh_cookie(response, tokens.refresh_token)
     return TokenPairResponse(
         data=TokenPair(

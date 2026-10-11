@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.api.routes import auth as auth_routes
 from app.core.config import get_settings
+from app.core.login_rate_limit import LoginRateLimiter, get_login_rate_limiter
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -262,6 +263,74 @@ def test_login_uses_same_safe_error_for_wrong_password_and_unknown_email(
     assert wrong_password.status_code == unknown_email.status_code == 401
     assert wrong_password.json() == unknown_email.json()
     assert wrong_password.json()["error"]["code"] == "AUTH_INVALID_CREDENTIALS"
+
+
+@pytest.mark.parametrize("registered", (True, False))
+def test_login_rate_limit_with_real_password_verification(
+    client: TestClient, db: Session, registered: bool
+) -> None:
+    email = f"limited-{uuid.uuid4()}@example.com"
+    user = None
+    if registered:
+        business = create_business(db, "Rate Limited")
+        user = create_user(db, business, UserRole.CUSTOMER, email=email)
+        assert (
+            client.post(
+                "/auth/login", json={"email": email, "password": PASSWORD}
+            ).status_code
+            == 200
+        )
+
+    now = [1_000.0]
+    limiter = LoginRateLimiter(
+        max_failed_attempts=5,
+        failed_window_seconds=900,
+        ip_max_requests=30,
+        ip_window_seconds=60,
+        clock=lambda: now[0],
+    )
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    for _ in range(5):
+        response = client.post(
+            "/auth/login",
+            json={"email": email.upper(), "password": "incorrect-password"},
+        )
+        assert response.status_code == 401
+        assert response.json() == {
+            "error": {
+                "code": "AUTH_INVALID_CREDENTIALS",
+                "message": "Invalid email or password.",
+                "details": None,
+            }
+        }
+
+    blocked = client.post("/auth/login", json={"email": email, "password": PASSWORD})
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "900"
+    assert blocked.json() == {
+        "error": {
+            "code": "AUTH_RATE_LIMITED",
+            "message": "Too many login attempts. Please try again later.",
+            "details": None,
+        }
+    }
+    assert "set-cookie" not in blocked.headers
+    now[0] += 900
+    response = client.post("/auth/login", json={"email": email, "password": PASSWORD})
+    if registered:
+        assert user is not None
+        assert response.status_code == 200
+        claims = jwt.decode(
+            response.json()["data"]["access_token"],
+            get_settings().jwt_secret,
+            algorithms=["HS256"],
+        )
+        assert claims["sub"] == str(user.id)
+        assert claims["type"] == "access"
+        assert "HttpOnly" in response.headers["set-cookie"]
+    else:
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "AUTH_INVALID_CREDENTIALS"
 
 
 def test_refresh_issues_access_token_for_current_database_identity(

@@ -132,7 +132,7 @@ uv run python -m app.db.check
 uv run alembic upgrade head
 uv run alembic heads
 DEMO_SEED_PASSWORD='<local-demo-only-password>' uv run python -m app.scripts.seed_demo --confirm-demo-data
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers
 ```
 
 The seed requires explicit acknowledgement, a password of at least 12 characters, and a named
@@ -173,6 +173,35 @@ access is ownership-scoped, and inaccessible cross-tenant or cross-Customer tick
 
 For Postman refresh testing, use the cookie jar populated by `/auth/login`; `/auth/refresh` does not accept a refresh token in the JSON body.
 
+### Login rate limiting
+
+`POST /auth/login` permits five failed attempts per sliding 15-minute window for each
+normalized (trimmed, lowercase) email + client IP. The first five invalid attempts return the
+same generic 401 for registered and unknown emails; subsequent attempts return the standard
+`AUTH_RATE_LIMITED` 429 error with a positive `Retry-After` in seconds. Successful logins do not
+erase recent failures. An additional per-IP limit counts body-parsed login requests, including
+successful logins and schema-invalid payloads. Malformed JSON is rejected before the limiter;
+this is not a general HTTP denial-of-service control. Allowed browser origins can read
+`Retry-After` through CORS.
+
+| Environment variable | Default |
+|---|---|
+| `LOGIN_MAX_FAILED_ATTEMPTS` | `5` |
+| `LOGIN_FAILED_WINDOW_SECONDS` | `900` |
+| `LOGIN_IP_MAX_REQUESTS` | `30` |
+| `LOGIN_IP_WINDOW_SECONDS` | `60` |
+
+All values must be positive integers. Docker Compose accepts the same overrides. Limits use
+the ASGI peer IP, not client-supplied `X-Forwarded-For`, `X-Real-IP`, or `Forwarded` headers.
+Docker and the startup command above disable proxy-header processing. If deploying behind a
+proxy, enable it only with an explicit, narrowly scoped trusted-proxy allowlist; never trust `*`.
+Without this, users behind the proxy share its IP limit.
+
+The limiter is thread-safe but process-local: run one backend worker, as already required by
+WebSocket rooms. Restarting clears limits; workers/instances do not share them. Shared NAT IPs
+share the request cap, and rotating source IPs are not fully mitigated. State is bounded to
+10,000 live keys; at capacity, new keys fail closed with 429 rather than evicting active limits.
+
 ## Demo Data and Accounts
 
 In the Docker demo, all eight accounts use **`HelpdeskDemo2026!`**, supplied only through the demo
@@ -202,6 +231,7 @@ uv run python -m compileall -q app alembic tests
 uv run ruff check app alembic tests
 uv run ruff format --check app alembic tests
 uv run mypy app tests
+uv run pytest -q tests/test_login_rate_limit.py tests/test_auth.py --tb=short
 ```
 
 The full test suite includes destructive migration checks and therefore requires
@@ -301,6 +331,8 @@ text with a URL until the recording exists and access has been tested.
 ### Known limitations and unfinished work
 
 - Refresh tokens are stateless and are not rotated or immediately revocable in M2.
+- Login limits are in memory, reset on restart, and do not span backend workers or instances;
+  see the login rate-limiting section for proxy, shared-IP, and capacity limitations.
 - Refresh-cookie headers and CORS behavior are covered by TestClient, but persistence and
   SameSite/Secure behavior have not been manually verified in a real browser deployment.
 - M5 uses an in-memory connection manager and must run with one backend worker. Live delivery does

@@ -4,6 +4,10 @@ x-app-environment: &app-environment
   REFRESH_TOKEN_EXPIRE_DAYS: "7"
   REFRESH_COOKIE_SECURE: "false"
   CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+  LOGIN_MAX_FAILED_ATTEMPTS: "${LOGIN_MAX_FAILED_ATTEMPTS:-5}"
+  LOGIN_FAILED_WINDOW_SECONDS: "${LOGIN_FAILED_WINDOW_SECONDS:-900}"
+  LOGIN_IP_MAX_REQUESTS: "${LOGIN_IP_MAX_REQUESTS:-30}"
+  LOGIN_IP_WINDOW_SECONDS: "${LOGIN_IP_WINDOW_SECONDS:-60}"
 
 # Fixed, public credentials are for this loopback-only local demo, not production.
 services:

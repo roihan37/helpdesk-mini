@@ -173,6 +173,7 @@ The `details` property must not expose database internals, JWT secrets, password
 | 404 | Resource not found or inaccessible |
 | 409 | Resource conflict or invalid state transition |
 | 422 | Request validation failed |
+| 429 | Login request rate limit exceeded |
 | 500 | Unexpected internal server error |
 
 **MUST:** Preserve the assessment's required 401, 403, 404, and 422 semantics.
@@ -184,6 +185,7 @@ The `details` property must not expose database internals, JWT secrets, password
 | Error code | HTTP status |
 |---|---|
 | AUTH_INVALID_CREDENTIALS | 401 |
+| AUTH_RATE_LIMITED | 429 |
 | AUTH_TOKEN_INVALID | 401 |
 | AUTH_TOKEN_EXPIRED | 401 |
 | AUTH_TOKEN_WRONG_TYPE | 401 |
@@ -405,11 +407,19 @@ The response also sets the HttpOnly refresh-token cookie for browser clients.
 - Use a generic error for incorrect email or password.
 - Never expose whether a particular email exists.
 - Do not log plaintext passwords or tokens.
+- Allow five failed attempts per sliding 15-minute window per normalized email + client IP.
+  Also limit body-parsed login requests to 30 per IP per 60 seconds. Both limits are configurable through
+  `LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_FAILED_WINDOW_SECONDS`, `LOGIN_IP_MAX_REQUESTS`, and
+  `LOGIN_IP_WINDOW_SECONDS`. Limits apply identically to registered and unknown emails.
+- Reject limited requests before password verification, using the standard error envelope with
+  `AUTH_RATE_LIMITED`, a generic message, null details, and a positive integer `Retry-After`
+  response header in seconds (rounded up). Never include the email or credentials in this error.
 
 **Possible Errors**
 
 - 401: Invalid credentials.
 - 422: Invalid input.
+- 429: Too many login attempts; retry after the indicated delay.
 
 ---
 
