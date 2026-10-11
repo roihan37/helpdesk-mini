@@ -1,7 +1,7 @@
 """Tenant-scoped ticket workflows."""
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -15,6 +15,7 @@ from app.services.authorization import (
     get_authorized_assignment_agent,
     get_authorized_ticket,
 )
+from app.services.ticket_reads import get_unread_counts
 
 NORMAL_STATUS_TRANSITIONS = {
     TicketStatus.OPEN: TicketStatus.IN_PROGRESS,
@@ -34,6 +35,7 @@ class TicketUpdateResult:
 class TicketPage:
     items: list[Ticket]
     total_items: int
+    unread_counts: dict[uuid.UUID, int] = field(default_factory=dict)
 
 
 def list_tickets(
@@ -68,8 +70,11 @@ def list_tickets(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
+    items = list(db.scalars(statement).all())
     return TicketPage(
-        items=list(db.scalars(statement).all()), total_items=total_items or 0
+        items=items,
+        total_items=total_items or 0,
+        unread_counts=get_unread_counts(db, current_user, [ticket.id for ticket in items]),
     )
 
 

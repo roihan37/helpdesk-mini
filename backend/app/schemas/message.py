@@ -16,6 +16,8 @@ class MessageSendEvent(StrictRequest):
 
 class MessagePublic(BaseModel):
     id: uuid.UUID
+    # Decimal string preserves PostgreSQL BIGINT precision in JavaScript clients.
+    sequence: str
     ticket_id: uuid.UUID
     sender_id: uuid.UUID
     sender_name: str
@@ -49,6 +51,7 @@ TicketListEventType = Literal[
     "ticket.message_created",
     "ticket.status_changed",
     "ticket.assignment_changed",
+    "ticket.read",
 ]
 
 

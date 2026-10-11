@@ -421,7 +421,7 @@ Document this limitation in README.
 
 ## 8. Database Architecture
 
-The minimum database contains four entities.
+The minimum database contains four core entities. B5 adds private per-user ticket read state.
 
 ### 8.1 Businesses
 
@@ -485,6 +485,7 @@ Fields:
 - `id`
 - `ticket_id`
 - `sender_id`
+- `sequence` (PostgreSQL-generated BIGINT identity, B5)
 - `body`
 - `created_at`
 
@@ -493,6 +494,8 @@ Constraints:
 - Required ticket and sender references.
 - Message sender must be authorized for the ticket.
 - Message body must pass input validation.
+- Unique index `(ticket_id, sequence)` supports unread range counts. Sequence is an opaque
+  read position; history retains its existing `(created_at, id)` ordering.
 
 Recommended index:
 
@@ -533,6 +536,28 @@ A user may send many messages.
 - Update ticket activity timestamp when messages arrive or ticket state changes.
 - Persist ticket creation and the first message atomically.
 - Never manually modify production schemas outside migrations.
+
+### 8.7 Private Ticket Read State (B5)
+
+`ticket_read_states` stores one row per `(user_id, ticket_id)` with foreign keys, a
+nonnegative `last_read_sequence`, and a Ticket ID index. Missing state means messages from
+other senders are initially unread, including pre-migration history. Own messages never count.
+One grouped query computes counts for the authorized page, independently of search/status
+filters and without per-ticket queries. Read state never changes Ticket activity ordering.
+
+`POST /tickets/{id}/read` derives the reader from access authentication, applies business and
+Customer ownership checks, and resolves the supplied observed Message ID within that Ticket.
+Readers and runtime message writers lock the same Ticket row; a PostgreSQL upsert advances
+the cursor monotonically. Stale/repeated acknowledgements cannot move it backwards, and
+messages beyond the observed boundary remain unread. Message identities are allocated while
+the writer holds this lock, rather than using transaction-start timestamps as read positions.
+
+The frontend acknowledges only successfully rendered history whose end is visible in the
+active tab. It reconciles REST history before acknowledgement to handle out-of-order socket
+events, waits for the reconciled messages to render, and refetches list counts after success.
+History GET, prefetch, hidden tabs, and failed loads do not acknowledge reads. This is private
+unread tracking, not a sender-visible read receipt. Server authorization is authoritative;
+the server cannot prove a human actually read the rendered content.
 
 ---
 
@@ -743,6 +768,10 @@ Responsibilities:
   delivery: Admin/Agent receive own-business activity; Customers receive only their own tickets.
 - Keep ticket-room chat separate from list notifications. The frontend coalesces list events
   into REST cache invalidation, preserving server-side pagination, search, and status filtering.
+- B5 reuses this subscription for a private `ticket.read` event after a changed cursor commits.
+  Deliver only to the reader's currently authorized sessions, never other ticket participants.
+  Its timestamp is acknowledgement time, not a Ticket activity update; it contains no cursor,
+  count, or message content and causes silent list invalidation.
 
 **Limitation:** In-memory connection management only supports broadcasting within one backend process.
 

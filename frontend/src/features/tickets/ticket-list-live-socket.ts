@@ -25,7 +25,7 @@ export function parseTicketListEvent(raw: unknown): TicketListEvent | null {
   if (typeof raw !== "string") return null;
   try {
     const event = JSON.parse(raw) as TicketListEvent;
-    if (!event || !["ticket.created", "ticket.message_created", "ticket.status_changed", "ticket.assignment_changed"].includes(event.type)) return null;
+    if (!event || !["ticket.created", "ticket.message_created", "ticket.status_changed", "ticket.assignment_changed", "ticket.read"].includes(event.type)) return null;
     if (!event.data || typeof event.data.ticket_id !== "string" ||
       !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(event.data.ticket_id) ||
       typeof event.data.updated_at !== "string" || !Number.isFinite(Date.parse(event.data.updated_at))) return null;

@@ -8,6 +8,7 @@ import { formatDateTime, nextTicketStatus, roleLabels, statusLabels } from "@/li
 import { queryKeys } from "@/lib/query";
 import type { Message, TicketDetail, TicketStatus, User } from "@/types/api";
 import { type ConnectionState, useTicketSocket } from "@/hooks/use-ticket-socket";
+import { useTicketRead } from "@/hooks/use-ticket-read";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -34,9 +35,11 @@ export function TicketDetailPage() {
   </div>;
   if (!ticket.data) return null;
   return <TicketWorkspace
+    key={ticketId}
     ticket={ticket.data}
     messages={messages.data ?? []}
     messagesError={messages.isError}
+    messagesReady={messages.isSuccess && !messages.isFetching && !messages.isError}
     retryMessages={() => void messages.refetch()}
   />;
 }
@@ -50,10 +53,11 @@ function NotFound() {
   </div>;
 }
 
-function TicketWorkspace({ ticket, messages, messagesError, retryMessages }: {
+function TicketWorkspace({ ticket, messages, messagesError, messagesReady, retryMessages }: {
   ticket: TicketDetail;
   messages: Message[];
   messagesError: boolean;
+  messagesReady: boolean;
   retryMessages: () => void
 }) {
   const { user } = useAuth();
@@ -83,6 +87,7 @@ function TicketWorkspace({ ticket, messages, messagesError, retryMessages }: {
         canSend={canSend}
         socket={socket}
         messagesError={messagesError}
+        messagesReady={messagesReady}
         retryMessages={retryMessages}
       />
       <TicketDetails ticket={ticket} />
@@ -104,7 +109,7 @@ function ConnectionStatus({ state }: { state: ConnectionState }) {
   </span>;
 }
 
-function Conversation({ ticket, messages, currentUserId, role, canSend, socket, messagesError, retryMessages }: {
+function Conversation({ ticket, messages, currentUserId, role, canSend, socket, messagesError, messagesReady, retryMessages }: {
   ticket: TicketDetail;
   messages: Message[];
   currentUserId: string;
@@ -112,11 +117,13 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
   canSend: boolean;
   socket: ReturnType<typeof useTicketSocket>;
   messagesError: boolean;
+  messagesReady: boolean;
   retryMessages: () => void
 }) {
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
-  const previousCount = useRef(messages.length);
+  const previousCount = useRef(0);
+  const read = useTicketRead(ticket.id, currentUserId, messages, messagesReady, listRef);
   const [showNew, setShowNew] = useState(false);
   useEffect(() => {
     const list = listRef.current;
@@ -147,6 +154,9 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
         <Alert tone="error">Messages could not be loaded. <Button variant="quiet" onClick={retryMessages}>Retry</Button></Alert>
       </div>
       : null}
+    {read.error && !messagesError ? <div className="panel-feedback">
+      <Alert tone="warning">{read.error} <Button variant="quiet" onClick={read.retry}>Retry</Button></Alert>
+    </div> : null}
     <div className="message-list" ref={listRef}>
       {messages.length === 0 && !messagesError
         ? <EmptyState title="No messages yet">Conversation history will appear here.</EmptyState>

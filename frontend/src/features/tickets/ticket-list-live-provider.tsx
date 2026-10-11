@@ -34,6 +34,7 @@ export function TicketListLiveProvider({ userId, children }: { userId: string | 
       invalidate: () => queryClient.invalidateQueries({ queryKey: ["tickets"] }, { cancelRefetch: true }),
       stateChanged: setConnection,
       notify: (event) => {
+        if (event.type === "ticket.read") return;
         if (noticeTimer) clearTimeout(noticeTimer);
         setActivity({ userId, notice: notices[event.type] });
         noticeTimer = setTimeout(() => setActivity({ userId, notice: "" }), 4000);

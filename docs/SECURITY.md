@@ -1044,6 +1044,11 @@ Admin/Agent must share the Ticket business; Customers must additionally own the 
 Check access-token expiration on every delivery. Apply the existing Origin validation and
 query-string-token redaction rules to this endpoint as well.
 
+B5 `ticket.read` events additionally require the recipient User ID to equal the authenticated
+reader who committed the acknowledgement. They contain no read cursor/count and must never
+be delivered to other participants as read receipts. Existing role, business, ownership, and
+access-token checks still apply.
+
 ### 11.10 WebSocket Token Exposure
 
 WebSocket authentication uses a query-string token because the assessment provides this endpoint format.
@@ -1116,6 +1121,23 @@ Before applying destructive migrations:
 - Verify migration compatibility.
 
 Never run destructive database commands against production without explicit authorization.
+
+### 12.5 Private Unread State (B5)
+
+- Derive the reader from the access token, never request-supplied user/business IDs.
+- Authorize the Ticket by business and Customer ownership before reading or changing state;
+  inaccessible Tickets return 404. Resolve the observed Message ID within that Ticket only.
+- Count only other senders' messages and expose only the requesting user's counts. Paginated
+  aggregation repeats tenant/ownership predicates; do not expose another user's cursor.
+- Serialize acknowledgements and runtime message writes using the Ticket row lock. Advance
+  the cursor with a monotonic database upsert; repeated/stale requests are idempotent.
+- Admins and closed-ticket viewers may mark authorized history read; this grants no messaging
+  or lifecycle permission. Marking read must not modify Ticket activity or anyone else's state.
+- History GET has no mark-read side effect. The frontend acknowledges successfully rendered,
+  visible conversation history, not hidden/prefetched/error states. An authenticated client
+  can acknowledge authorized content, but the server cannot prove human attention.
+- Apply the B5 migration through Alembic only after deferred disposable-database verification;
+  it has not been applied or tested during this implementation-only phase.
 
 ### 12.5 SQL Injection Prevention
 

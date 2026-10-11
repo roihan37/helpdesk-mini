@@ -30,8 +30,12 @@ async def broadcast_ticket_list_event(
     business_id: uuid.UUID,
     customer_id: uuid.UUID,
     updated_at: datetime,
+    recipient_user_id: uuid.UUID | None = None,
 ) -> None:
     """Publish committed activity; scope comes only from the persisted Ticket."""
+    if event_type == "ticket.read" and recipient_user_id is None:
+        # Private unread synchronization must never become a sender-visible receipt.
+        raise ValueError("Read events require an explicit recipient")
     event = TicketListEvent(
         type=event_type,
         data=TicketListEventData(ticket_id=ticket_id, updated_at=updated_at),
@@ -41,7 +45,12 @@ async def broadcast_ticket_list_event(
         subscriptions: dict[WebSocket, str],
     ) -> tuple[set[WebSocket], set[WebSocket]]:
         return await run_in_threadpool(
-            _list_recipients, session_factory, subscriptions, business_id, customer_id
+            _list_recipients,
+            session_factory,
+            subscriptions,
+            business_id,
+            customer_id,
+            recipient_user_id,
         )
 
     try:
@@ -58,6 +67,7 @@ def _list_recipients(
     subscriptions: dict[WebSocket, str],
     business_id: uuid.UUID,
     customer_id: uuid.UUID,
+    recipient_user_id: uuid.UUID | None = None,
 ) -> tuple[set[WebSocket], set[WebSocket]]:
     identities: dict[WebSocket, uuid.UUID] = {}
     invalid: set[WebSocket] = set()
@@ -81,7 +91,9 @@ def _list_recipients(
             user = users.get(user_id)
             if user is None or user.role not in set(UserRole):
                 invalid.add(websocket)
-            elif user.business_id == business_id and (
+            elif (
+                recipient_user_id is None or user.id == recipient_user_id
+            ) and user.business_id == business_id and (
                 user.role in {UserRole.ADMIN, UserRole.AGENT}
                 or (user.role == UserRole.CUSTOMER and user.id == customer_id)
             ):

@@ -52,16 +52,19 @@ export interface TicketListItem {
   created_at: string;
   updated_at: string;
   assigned_agent: UserSummary | null;
+  unread_count?: number;
 }
 
-export type TicketPublic = Omit<TicketListItem, "assigned_agent">;
+export type TicketPublic = Omit<TicketListItem, "assigned_agent" | "unread_count">;
 
-export interface TicketDetail extends TicketListItem {
+export interface TicketDetail extends Omit<TicketListItem, "unread_count"> {
   customer: UserSummary;
 }
 
 export interface Message {
   id: string;
+  /** Decimal PostgreSQL position; optional only for pre-B5 cached responses. */
+  sequence?: string;
   ticket_id: string;
   sender_id: string;
   sender_name: string;
@@ -120,6 +123,6 @@ export type WebSocketEvent =
   };
 
 export interface TicketListEvent {
-  type: "ticket.created" | "ticket.message_created" | "ticket.status_changed" | "ticket.assignment_changed";
+  type: "ticket.created" | "ticket.message_created" | "ticket.status_changed" | "ticket.assignment_changed" | "ticket.read";
   data: { ticket_id: string; updated_at: string };
 }

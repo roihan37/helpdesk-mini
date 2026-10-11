@@ -55,6 +55,7 @@ def create_message(
         db.refresh(message)
         return MessagePublic(
             id=message.id,
+            sequence=str(message.sequence),
             ticket_id=message.ticket_id,
             sender_id=message.sender_id,
             sender_name=current_user.name,
@@ -70,6 +71,7 @@ def create_message(
 def _message_public(message: Message) -> MessagePublic:
     return MessagePublic(
         id=message.id,
+        sequence=str(message.sequence),
         ticket_id=message.ticket_id,
         sender_id=message.sender_id,
         sender_name=message.sender.name,

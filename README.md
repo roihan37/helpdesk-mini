@@ -182,7 +182,21 @@ before delivery. Existing Origin restrictions apply.
 Events invalidate the existing ticket-list queries with 250 ms coalescing, preserving page,
 search, status filters, and database sorting. A short generic inline notice avoids exposing
 message content. Reconnect refetches missed activity; token replacement and logout clean up the
-subscription. No unread badges or notification center are added.
+subscription. B4 itself adds no unread badges or notification center.
+
+### Persistent unread badges (B5)
+
+Ticket rows/cards show the current user's count of unread messages from other users. Read
+cursors persist in PostgreSQL; opening a conversation acknowledges only successfully loaded,
+rendered history when its end is visible in an active tab. Fetching history alone does not mark
+it read. A private `ticket.read` event uses the existing list subscription to synchronize that
+user's other sessions, silently; other users' read state is never cleared or broadcast.
+
+Apply Alembic migrations before running the updated application. B5 adds `messages.sequence`
+and `ticket_read_states`; existing messages from other users initially count as unread until
+viewed. This implementation-only phase did **not** apply the migration or run tests/builds.
+See [deferred B5 verification](docs/UNREAD_VERIFICATION.md) for required checks. Real-time
+delivery retains the single-backend-process, best-effort limitation described above.
 
 For Postman refresh testing, use the cookie jar populated by `/auth/login`; `/auth/refresh` does not accept a refresh token in the JSON body.
 

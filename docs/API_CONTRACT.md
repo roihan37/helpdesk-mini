@@ -744,7 +744,8 @@ GET /tickets?status=open&search=account&page=1&page_size=20
       "assigned_agent": {
         "id": "agent-uuid",
         "name": "Support Agent"
-      }
+      },
+      "unread_count": 2
     }
   ],
   "pagination": {
@@ -766,6 +767,10 @@ GET /tickets?status=open&search=account&page=1&page_size=20
 - Order by `updated_at` descending, then `id` descending for deterministic ties.
 - `total_items` counts all authorized matches, not just the current page.
 - `total_pages` is the ceiling of `total_items / page_size`, or 0 for no matches.
+- `unread_count` is the current user's number of messages from other senders beyond their
+  persisted read cursor. Without a cursor, all other senders' messages count, including
+  historical messages. Compute counts in one grouped query for the authorized page.
+- Listing or fetching history does not mark messages read; never expose another user's state.
 - Return an empty `data` array for no matches or a page beyond the last page; preserve
   the requested page and filtered totals in metadata.
 
@@ -998,6 +1003,54 @@ Broadcast only committed state.
 
 ---
 
+### TICKET-05: Mark Conversation Read (B5)
+
+```http
+POST /tickets/{id}/read
+```
+
+**Access:** Authorized Ticket viewers (Admin, Agent, or owning Customer)  
+**Success:** 200 OK
+
+**Request**
+
+```json
+{
+  "last_message_id": "message-uuid"
+}
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "ticket_id": "ticket-uuid",
+    "unread_count": 0
+  }
+}
+```
+
+- Send the ID of the latest observed message by `sequence`, only after conversation history
+  has successfully rendered and its end is visible in the active tab. Resolve the message
+  within the authorized Ticket; do not accept user IDs, business IDs, or arbitrary cursors.
+- Advance only the authenticated user's cursor. Repeated or stale acknowledgements are
+  idempotent and never move it backwards; concurrent messages beyond that boundary remain
+  unread, so the returned count can be greater than zero.
+- Admin read-only conversations and closed Tickets may be acknowledged. This does not permit
+  messaging, change Ticket activity timestamps, or alter anyone else's read state.
+- Emit private `ticket.read` only after a changed cursor commits, to that user's authorized
+  list subscriptions. This is not a sender-visible read receipt. History GET does not mark read.
+
+**Possible Errors**
+
+- 401: Missing/invalid access authentication.
+- 403: Unsupported role.
+- 404: Ticket missing/inaccessible, or the Message does not belong to that authorized Ticket.
+- 422: Missing/invalid Message UUID or extra request fields.
+
+---
+
 ## 9. Message Contract
 
 ### 9.1 Message Representation
@@ -1007,6 +1060,7 @@ Broadcast only committed state.
 ```json
 {
   "id": "message-uuid",
+  "sequence": "101",
   "ticket_id": "ticket-uuid",
   "sender_id": "sender-uuid",
   "sender_name": "Customer One",
@@ -1022,6 +1076,10 @@ Every displayed message must include:
 - Sender role.
 - Sending timestamp.
 - Message content.
+
+B5 adds `sequence`, an opaque positive decimal-string PostgreSQL BIGINT read position. Do not
+convert it to a JavaScript Number; compare decimal lengths/lexical values or use BigInt. It is
+not a sender-visible receipt and does not replace `(created_at, id)` history ordering.
 
 ### 9.2 Message History Endpoint
 
@@ -1039,6 +1097,7 @@ GET /tickets/{id}/messages
   "data": [
     {
       "id": "message-uuid",
+      "sequence": "101",
       "ticket_id": "ticket-uuid",
       "sender_id": "customer-uuid",
       "sender_name": "Customer One",
@@ -1048,6 +1107,7 @@ GET /tickets/{id}/messages
     },
     {
       "id": "message-uuid-2",
+      "sequence": "102",
       "ticket_id": "ticket-uuid",
       "sender_id": "agent-uuid",
       "sender_name": "Support Agent",
@@ -1067,6 +1127,7 @@ GET /tickets/{id}/messages
 - Sort by `created_at` ascending.
 - Use message ID as a secondary sort key for deterministic ordering.
 - Return an empty array when no messages exist.
+- Fetching history has no mark-read side effect; use TICKET-05 after actually viewing it.
 
 **Possible Errors**
 
@@ -1171,7 +1232,12 @@ Invalid/expired/deleted users are disconnected with `1008`.
 
 Delivery is single-process and best-effort. Clients refetch authorized `GET /tickets` data on
 events and every successful reconnect; pagination/search/status remain REST responsibilities.
-Existing ticket-room message and status envelopes are unchanged.
+
+B5 adds `ticket.read` using the same minimal envelope. Deliver it only to the User whose read
+cursor advanced, with all existing tenant/role/token checks. For this event, `updated_at` is
+the server acknowledgement time, not a Ticket activity timestamp. No cursor, unread count,
+or read receipt is exposed to other users. Clients silently invalidate their list cache.
+Ticket-room message data additionally includes B5 `sequence`; status payloads remain unchanged.
 
 ---
 
@@ -1220,6 +1286,7 @@ Reject oversized or empty messages.
   "type": "message.created",
   "data": {
     "id": "message-uuid",
+    "sequence": "101",
     "ticket_id": "ticket-uuid",
     "sender_id": "customer-uuid",
     "sender_name": "Customer One",

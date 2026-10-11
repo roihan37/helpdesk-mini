@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,10 +17,15 @@ class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
         Index("ix_messages_ticket_id_created_at_id", "ticket_id", "created_at", "id"),
+        Index("ix_messages_ticket_id_sequence", "ticket_id", "sequence", unique=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # Allocated while holding the ticket lock, unlike transaction-start timestamps.
+    sequence: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), nullable=False
     )
     ticket_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

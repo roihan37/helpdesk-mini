@@ -18,9 +18,13 @@ from app.schemas.ticket import (
     TicketListResponse,
     TicketPagination,
     TicketPublic,
+    TicketReadData,
+    TicketReadRequest,
+    TicketReadResponse,
     TicketUpdateRequest,
 )
 from app.services.messages import list_messages
+from app.services.ticket_reads import mark_ticket_read
 from app.services.tickets import (
     create_ticket,
     get_ticket,
@@ -52,7 +56,12 @@ def list_ticket_records(
         db, current_user, ticket_status, page=page, page_size=page_size, search=search
     )
     return TicketListResponse(
-        data=[TicketListItem.model_validate(ticket) for ticket in tickets.items],
+        data=[
+            TicketListItem.model_validate(ticket).model_copy(
+                update={"unread_count": tickets.unread_counts.get(ticket.id, 0)}
+            )
+            for ticket in tickets.items
+        ],
         pagination=TicketPagination(
             page=page,
             page_size=page_size,
@@ -117,6 +126,41 @@ def get_ticket_messages(
     db: Annotated[Session, Depends(get_db)],
 ) -> MessageListResponse:
     return MessageListResponse(data=list_messages(db, ticket_id, current_user))
+
+
+@router.post(
+    "/{ticket_id}/read",
+    response_model=TicketReadResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+def mark_ticket_conversation_read(
+    ticket_id: uuid.UUID,
+    payload: TicketReadRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    session_factory: Annotated[sessionmaker[Session], Depends(get_session_factory)],
+) -> TicketReadResponse:
+    result = mark_ticket_read(db, ticket_id, current_user, payload.last_message_id)
+    if result.changed:
+        background_tasks.add_task(
+            broadcast_ticket_list_event,
+            session_factory,
+            "ticket.read",
+            result.ticket_id,
+            result.business_id,
+            result.customer_id,
+            result.read_at,
+            recipient_user_id=current_user.id,
+        )
+    return TicketReadResponse(
+        data=TicketReadData(ticket_id=result.ticket_id, unread_count=result.unread_count)
+    )
 
 
 @router.patch(

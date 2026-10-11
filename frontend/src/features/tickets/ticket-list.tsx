@@ -162,6 +162,7 @@ function TicketRows({ tickets }: { tickets: TicketListItem[] }) {
           {tickets.map((ticket) => <tr key={ticket.id}>
             <td>
               <Link href={`/tickets/${encodeURIComponent(ticket.id)}`}>{ticket.subject}</Link>
+              {(ticket.unread_count ?? 0) > 0 && <> <UnreadBadge count={ticket.unread_count ?? 0} /></>}
               <span className="cell-secondary">{ticket.category}</span>
             </td>
             <td>
@@ -200,6 +201,7 @@ function TicketRows({ tickets }: { tickets: TicketListItem[] }) {
           </span>
           <span className="badge-row">
             <Badge kind={ticket.status}>{statusLabels[ticket.status]}</Badge>
+            {(ticket.unread_count ?? 0) > 0 && <UnreadBadge count={ticket.unread_count ?? 0} />}
             <span className={`priority priority-${ticket.priority}`}>
               <span aria-hidden="true" />
               {ticket.priority}
@@ -213,6 +215,10 @@ function TicketRows({ tickets }: { tickets: TicketListItem[] }) {
       </li>)}
     </ul>
   </>;
+}
+
+function UnreadBadge({ count }: { count: number }) {
+  return <span className="count-label" aria-label={`${count} unread messages`}>{count}</span>;
 }
 
 function TicketListSkeleton() {

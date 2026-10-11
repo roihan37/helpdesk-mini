@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.models import TicketPriority, TicketStatus
 from app.schemas.common import StrictRequest
@@ -67,6 +67,20 @@ class TicketPublic(BaseModel):
 
 class TicketListItem(TicketPublic):
     assigned_agent: TicketUserIdentity | None
+    unread_count: int = Field(default=0, ge=0)
+
+
+class TicketReadRequest(StrictRequest):
+    last_message_id: uuid.UUID
+
+
+class TicketReadData(BaseModel):
+    ticket_id: uuid.UUID
+    unread_count: int = Field(ge=0)
+
+
+class TicketReadResponse(BaseModel):
+    data: TicketReadData
 
 
 class TicketDetail(TicketPublic):

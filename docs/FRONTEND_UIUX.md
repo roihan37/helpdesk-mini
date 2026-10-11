@@ -364,11 +364,28 @@ view's chat socket. Coalesce activity into ticket-list query invalidation over 2
 current page, search, and status. Never filter protected events on the frontend for security.
 Show only a small generic inline activity notice on `/tickets`, cleared after four seconds.
 Use existing Alert styling and polite status announcements; do not add a notifications center
-or unread badges. Show a subtle reconnect/offline message without blocking REST usage.
+or unread badges as part of B4. Show a subtle reconnect/offline message without blocking REST usage.
 
 Ignore duplicate event type/Ticket ID/timestamp combinations, refetch on reconnect, replace
 the socket when the in-memory access token changes, and close it on logout or provider unmount.
 Keep bounded reconnect backoff and refresh before token expiry; never expose token-bearing URLs.
+
+### B5 Private unread badges
+
+The separately approved B5 extension uses the existing `count-label` styling beside each
+desktop Ticket subject and in each mobile card's badge row, without a page redesign or new
+design tokens. Hide zero counts; provide an accessible "N unread messages" label.
+
+Reuse the B4 session subscription and TanStack Query list invalidation for incoming activity.
+Private `ticket.read` events synchronize only the same user's sessions and produce no activity
+notice. Preserve page, search, filters, responsive behavior, and existing connection lifecycle.
+
+Mark read only after history loads successfully, the reconciled messages render, and the end
+of the conversation is visible in an active tab. Do not mark from prefetch, hidden tabs,
+loading/error states, or while scrolled away from the end. Failed acknowledgement shows a
+safe inline warning with Retry; it must not force the badge to zero. Refetch authoritative
+counts after success, since unseen concurrent messages can remain unread. Abort pending work
+on logout/unmount; do not add polling, another socket, or sender-visible read receipts.
 
 ### Connection language
 
@@ -452,6 +469,10 @@ the existing list, without changing the original M6 page design.
 
 The separately approved B4 extension adds live list invalidation and a subtle generic activity
 notice, not a Notifications Center, unread badges, or a page redesign.
+
+The separately approved B5 extension adds private unread-count badges and authorized read
+acknowledgement as the scoped exception to M6's unread exclusion. Typing indicators and
+sender-visible read receipts remain outside scope.
 
 ## 12. Design Review Checklist
 

@@ -3,6 +3,7 @@ from app.models.business import Business
 from app.models.enums import TicketPriority, TicketStatus, UserRole
 from app.models.message import Message
 from app.models.ticket import Ticket
+from app.models.ticket_read_state import TicketReadState
 from app.models.user import User
 
 __all__ = [
@@ -10,6 +11,7 @@ __all__ = [
     "Business",
     "Message",
     "Ticket",
+    "TicketReadState",
     "TicketPriority",
     "TicketStatus",
     "User",
