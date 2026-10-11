@@ -19,7 +19,65 @@ assistive-technology/contrast evidence, and the 3-5 minute demo recording.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
-## Prerequisites
+## One-command Docker demo (recommended for reviewers)
+
+Prerequisites: Docker Engine with the Docker Compose plugin, or Docker Desktop, running with
+ports 3000, 8000, and 5433 free. From the repository root:
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+No `.env` files, local Python/Node/PostgreSQL installation, or password prompts are required.
+The first build downloads dependencies and can take several minutes. PostgreSQL becomes healthy,
+the backend runs Alembic migrations and the existing demo seed, then the production Next.js
+frontend starts. Tests do **not** run during normal startup.
+
+- Login: **http://localhost:3000/login**
+- Backend: http://localhost:8000/health; Swagger: http://localhost:8000/docs
+- Shared password for all eight accounts below: **`HelpdeskDemo2026!`**
+- Fresh demo: 2 businesses, 8 users, 5 tickets, and 7 messages.
+
+Use `localhost` consistently in the browser. The frontend uses `http://localhost:8000` for REST
+and `ws://localhost:8000` for WebSocket connections; these are browser URLs, not Docker service
+names. Explicit credentialed CORS and the HttpOnly, SameSite=Lax refresh cookie remain enabled.
+The backend runs one worker because ticket-room broadcasts use an in-memory connection manager.
+
+Run the existing backend suite, migrations, and schema-drift check explicitly:
+
+```bash
+docker compose --profile test run --build --rm tests
+```
+
+The test profile uses a separate `test-db` service and a disposable `helpdesk_compose_test`
+database in tmpfs, with all test database URLs pointing there. It does not connect to or seed
+the demo database. Migration downgrade tests operate only on that disposable database.
+
+```bash
+docker compose logs backend
+docker compose stop
+docker compose up -d
+docker compose restart
+docker compose down
+```
+
+`stop`, `restart`, and `down` without `--volumes` preserve demo data. Named volumes
+`demo_postgres_data` and `demo_backend_state` retain PostgreSQL data and an automatically generated
+private JWT signing secret. On restart, the complete demo identity manifest is detected and seed
+is skipped: edited users, passwords, tickets, and messages are not reset or duplicated. An
+incomplete/nonempty database without the manifest is rejected rather than modified automatically.
+Do not use `down --volumes` if you want to keep data. The previous Compose `postgres_data` volume
+is not reused or deleted; this demo uses its own database and volumes.
+
+**Local demo only:** these public account/database credentials and HTTP cookie settings must
+never be used in production. All published ports are bound to loopback. Automatic initialization
+accepts only the fixed Compose `db:5432/helpdesk_mini_demo` target and demo database role; external
+or production targets are rejected. `.env.compose` is no longer required or consumed. For other
+environments, use the manual setup below with private credentials and an appropriate secure
+configuration; do not use the demo entrypoint.
+
+## Manual setup prerequisites
 
 The M0 checks were run with:
 
@@ -80,8 +138,9 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 The seed requires explicit acknowledgement, a password of at least 12 characters, and a named
 PostgreSQL target. It refuses obvious production/system database names, never truncates tables,
 and aborts on incompatible existing demo keys. Rerunning it with the same password is idempotent;
-it preserves unrelated rows. Inspect `DATABASE_URL` before confirming. Do not save the supplied
-demo password in Git, `.env.example`, screenshots, or recordings.
+it preserves unrelated rows. Inspect `DATABASE_URL` before confirming. Never save real or
+production credentials in Git, environment templates, screenshots, or recordings. The public
+Docker demo password above is deliberately demo-only.
 
 The intentionally public health endpoint is available at `http://127.0.0.1:8000/health` and returns only `{"status":"ok"}`. Swagger UI is available at `http://127.0.0.1:8000/docs`.
 
@@ -116,8 +175,9 @@ For Postman refresh testing, use the cookie jar populated by `/auth/login`; `/au
 
 ## Demo Data and Accounts
 
-All eight accounts use the one local-only password supplied as `DEMO_SEED_PASSWORD` when the seed
-is run. The password is intentionally not hardcoded in this repository.
+In the Docker demo, all eight accounts use **`HelpdeskDemo2026!`**, supplied only through the demo
+seed configuration and stored as Argon2 hashes. For manual setup, they use the local-only password
+you supply as `DEMO_SEED_PASSWORD`; authentication has no demo password bypass.
 
 | Business | Slug | Role | Email |
 |---|---|---|---|
@@ -255,7 +315,8 @@ text with a URL until the recording exists and access has been tested.
 - The mandatory M6 browser matrix was verified manually through browser automation, but the
   repository does not yet include a dedicated browser-E2E suite. A dedicated VoiceOver or other
   assistive-technology pass was not run; keyboard, focus, semantics, and responsive checks passed.
-- Database startup requires a locally provisioned PostgreSQL role and database matching `backend/.env`.
+- Manual startup requires a locally provisioned PostgreSQL role and database matching
+  `backend/.env`; the Docker demo provisions its own isolated database automatically.
 - M7 final audit passed the complete backend/frontend gates, disposable PostgreSQL migration and
   seed checks, real-browser E2E/security flows, and a measured working-candidate setup rehearsal.
   A dedicated assistive-technology/contrast pass, a 3-5 minute demo recording, and verification

@@ -20,6 +20,7 @@ from app.scripts.seed_demo import (
     seed_demo,
     validate_database_target,
 )
+from app.scripts.start_demo import initialize_demo
 
 PASSWORD = "local-demo-password-2026"
 BUSINESS_IDS = tuple(spec.id for spec in BUSINESS_SPECS)
@@ -207,3 +208,49 @@ def test_seed_requires_explicit_confirmation() -> None:
             "postgresql+psycopg://user:secret@localhost/helpdesk_mini",
             confirmed=False,
         )
+
+
+def test_automatic_seed_preserves_modified_demo_data_on_restart(
+    seed_engine: Engine,
+) -> None:
+    with Session(seed_engine) as db:
+        assert initialize_demo(db, PASSWORD) is True
+        ticket = db.get(Ticket, TICKET_IDS[0])
+        user = db.get(User, USER_IDS[0])
+        assert ticket is not None and user is not None
+        ticket.status = TicketStatus.IN_PROGRESS
+        ticket.assigned_agent_id = USER_IDS[1]
+        ticket.subject = "Edited by the reviewer"
+        user.name = "Reviewer renamed admin"
+        original_hash = user.password_hash
+        db.commit()
+
+        # A changed demo configuration must never reset an existing user's password.
+        assert initialize_demo(db, "different-demo-password-2026") is False
+        db.refresh(ticket)
+        db.refresh(user)
+        assert ticket.status == TicketStatus.IN_PROGRESS
+        assert ticket.assigned_agent_id == USER_IDS[1]
+        assert ticket.subject == "Edited by the reviewer"
+        assert user.name == "Reviewer renamed admin"
+        assert user.password_hash == original_hash
+        assert db.scalar(select(func.count()).select_from(Ticket)) == 5
+        assert db.scalar(select(func.count()).select_from(Message)) == 7
+
+
+def test_automatic_seed_refuses_nonempty_database_without_demo_manifest(
+    seed_engine: Engine,
+) -> None:
+    unrelated_id = uuid.uuid4()
+    with Session(seed_engine) as db:
+        db.add(Business(id=unrelated_id, name="Existing data", slug=str(unrelated_id)))
+        db.commit()
+        try:
+            with pytest.raises(DemoSeedError, match="non-empty database"):
+                initialize_demo(db, PASSWORD)
+            assert db.get(Business, unrelated_id) is not None
+            assert db.scalar(select(func.count()).select_from(User)) == 0
+        finally:
+            db.rollback()
+            db.execute(delete(Business).where(Business.id == unrelated_id))
+            db.commit()

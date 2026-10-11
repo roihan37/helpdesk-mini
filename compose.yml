@@ -1,19 +1,26 @@
+x-app-environment: &app-environment
+  JWT_ALGORITHM: HS256
+  ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  REFRESH_COOKIE_SECURE: "false"
+  CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
 
+# Fixed, public credentials are for this loopback-only local demo, not production.
 services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
 
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-helpdesk_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:-helpdesk_mini}
+      POSTGRES_USER: helpdesk_demo
+      POSTGRES_PASSWORD: local-demo-postgres-only
+      POSTGRES_DB: helpdesk_mini_demo
 
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:5433:5432"
 
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - demo_postgres_data:/var/lib/postgresql/data
 
     healthcheck:
       test:
@@ -26,17 +33,17 @@ services:
   backend:
     build:
       context: ./backend
+      target: runtime
 
     restart: unless-stopped
 
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-helpdesk_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-helpdesk_mini}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      JWT_ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: "15"
-      REFRESH_TOKEN_EXPIRE_DAYS: "7"
-      REFRESH_COOKIE_SECURE: "false"
-      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      <<: *app-environment
+      DATABASE_URL: postgresql+psycopg://helpdesk_demo:local-demo-postgres-only@db:5432/helpdesk_mini_demo
+      DEMO_SEED_PASSWORD: HelpdeskDemo2026!
+
+    volumes:
+      - demo_backend_state:/var/lib/helpdesk-demo
 
     depends_on:
       db:
@@ -45,10 +52,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
 
-    command:
-      - sh
-      - -c
-      - "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+    command: ["python", "-m", "app.scripts.start_demo"]
 
     healthcheck:
       test:
@@ -80,5 +84,50 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
 
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  test-db:
+    image: postgres:17-alpine
+    profiles: [test]
+    environment:
+      POSTGRES_USER: helpdesk_test
+      POSTGRES_PASSWORD: local-test-only
+      POSTGRES_DB: helpdesk_compose_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  tests:
+    profiles: [test]
+    build:
+      context: ./backend
+      target: tests
+    environment:
+      <<: *app-environment
+      DATABASE_URL: postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_compose_test
+      TEST_DATABASE_URL: postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_compose_test
+      M1_TEST_DATABASE_URL: postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_compose_test
+      JWT_SECRET: compose-test-only-secret-not-for-production-2026
+    depends_on:
+      test-db:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head && pytest -q --tb=short && alembic check"]
+
 volumes:
-  postgres_data:
+  demo_postgres_data:
+  demo_backend_state:
