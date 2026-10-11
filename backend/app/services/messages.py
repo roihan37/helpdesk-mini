@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.dependencies import require_roles
 from app.core.errors import AppError
-from app.models import Message, TicketReadState, TicketStatus, User, UserRole
-from app.schemas.message import MessagePublic, MessageReader
+from app.models import Message, MessageAttachment, TicketReadState, TicketStatus, User, UserRole
+from app.schemas.message import AttachmentPublic, MessagePublic, MessageReader
 from app.services.authorization import get_authorized_ticket
 
 
@@ -20,7 +20,7 @@ def list_messages(
     ticket = get_authorized_ticket(db, ticket_id, current_user)
     messages = db.scalars(
         select(Message)
-        .options(joinedload(Message.sender))
+        .options(joinedload(Message.sender), joinedload(Message.attachment))
         .where(Message.ticket_id == ticket_id)
         .order_by(Message.created_at.asc(), Message.id.asc())
     ).all()
@@ -55,6 +55,7 @@ def create_message(
     ticket_id: uuid.UUID,
     current_user: User,
     body: str,
+    attachment: MessageAttachment | None = None,
 ) -> MessagePublic:
     """Persist one authorized message and activity timestamp atomically."""
     try:
@@ -73,10 +74,11 @@ def create_message(
             body=body,
         )
         ticket.updated_at = datetime.now(UTC)
+        if attachment is not None:
+            message.attachment = attachment
         db.add(message)
-        db.commit()
-        db.refresh(message)
-        return MessagePublic(
+        db.flush()
+        public = MessagePublic(
             id=message.id,
             sequence=str(message.sequence),
             ticket_id=message.ticket_id,
@@ -85,7 +87,10 @@ def create_message(
             sender_role=UserRole(current_user.role),
             body=message.body,
             created_at=message.created_at,
+            attachment=AttachmentPublic.model_validate(attachment) if attachment else None,
         )
+        db.commit()
+        return public
     except Exception:
         db.rollback()
         raise
@@ -101,4 +106,5 @@ def _message_public(message: Message) -> MessagePublic:
         sender_role=UserRole(message.sender.role),
         body=message.body,
         created_at=message.created_at,
+        attachment=AttachmentPublic.model_validate(message.attachment) if message.attachment else None,
     )

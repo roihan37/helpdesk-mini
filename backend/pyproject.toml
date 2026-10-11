@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "FastAPI backend for HelpDesk Mini"
 requires-python = ">=3.11"
 dependencies = [
+    "boto3>=1.35,<2.0",
+    "pillow>=11.0,<13.0",
+    "python-multipart>=0.0.20,<1.0",
     "alembic>=1.14,<2",
     "argon2-cffi>=23,<26",
     "email-validator>=2.2,<3",

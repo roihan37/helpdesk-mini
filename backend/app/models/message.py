@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.message_attachment import MessageAttachment
     from app.models.ticket import Ticket
     from app.models.user import User
 
@@ -44,3 +45,6 @@ class Message(Base):
 
     ticket: Mapped["Ticket"] = relationship(back_populates="messages")
     sender: Mapped["User"] = relationship(back_populates="sent_messages")
+    attachment: Mapped["MessageAttachment | None"] = relationship(
+        back_populates="message", cascade="all, delete-orphan", uselist=False
+    )

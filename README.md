@@ -63,7 +63,7 @@ docker compose down
 ```
 
 `stop`, `restart`, and `down` without `--volumes` preserve demo data. Named volumes
-`demo_postgres_data` and `demo_backend_state` retain PostgreSQL data and an automatically generated
+`demo_postgres_data`, `demo_uploads`, and `demo_backend_state` retain PostgreSQL data, private image uploads, and an automatically generated
 private JWT signing secret. On restart, the complete demo identity manifest is detected and seed
 is skipped: edited users, passwords, tickets, and messages are not reset or duplicated. An
 incomplete/nonempty database without the manifest is rejected rather than modified automatically.
@@ -417,6 +417,48 @@ text with a URL until the recording exists and access has been tested.
   seed checks, real-browser E2E/security flows, and a measured working-candidate setup rehearsal.
   A dedicated assistive-technology/contrast pass, a 3-5 minute demo recording, and verification
   from the immutable final revision remain outstanding, so M7 is not complete.
+
+## B7 image attachments — implementation only, verification deferred
+
+Agent and Customer chat composers now support one JPEG, PNG, or WebP per message,
+an optional caption, preview/removal, upload state, inline images, and an accessible
+enlarged view. Admin remains read-only. Images must be at most 5 MiB, 8192 pixels
+per side, and 20 megapixels; animated images are rejected. The server decodes and
+re-encodes accepted images without their original metadata. Re-encoded files must
+also fit the size limit. Text-only messages remain supported.
+
+Docker defaults to `STORAGE_PROVIDER=local` and the persistent `demo_uploads`
+volume. Manual startup defaults to `LOCAL_UPLOAD_DIR=.uploads/attachments`
+relative to the backend working directory. Files are not publicly mounted; all
+downloads require the existing access token and ticket authorization.
+
+Optional S3 configuration uses `STORAGE_PROVIDER=s3`, `AWS_REGION`,
+`AWS_BUCKET_NAME`, and `AWS_S3_PREFIX` (default `helpdesk-mini/attachments/`).
+Prefer the SDK credential chain/IAM role; otherwise supply both
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` through your local environment or
+secret manager, never tracked files. Compose accepts these variables without
+requiring them for the local demo. Use a private bucket with Block Public Access
+enabled and scoped `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` permissions
+for the attachment prefix. No public URLs or public ACLs are created.
+
+New dependencies are recorded in `backend/uv.lock`; dependency installation and
+the new `c7e4a682d193` Alembic migration have **not** been executed for B7. Existing
+setup commands remain the installation/migration entry points for the approved
+verification phase. Do not run a schema downgrade against valuable data.
+
+Do not change the local root or S3 bucket without migrating stored objects.
+Back up both PostgreSQL and image storage; database backups alone omit image
+bytes. Restart preserves files, but deleting Docker volumes removes them.
+Storage and PostgreSQL cannot share a transaction: ambiguous failures can leave
+orphaned objects, requiring reconciliation. A timed-out upload may already have
+committed; reload history before retrying. Request-body limits, upload quotas,
+malware scanning, and orphan garbage collection are not implemented. Failed image
+loads conservatively delay mark-read; long image histories can use substantial
+browser memory. Existing single-worker/best-effort WebSocket limitations apply.
+
+All B7 runtime, migration, Docker, browser, security, and regression checks are
+**NOT RUN (deferred)**. Earlier milestone evidence does not verify B7. Required
+scenarios are in [docs/ATTACHMENT_VERIFICATION.md](docs/ATTACHMENT_VERIFICATION.md).
 
 ## Milestone Roadmap
 

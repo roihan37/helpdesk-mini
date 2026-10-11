@@ -222,6 +222,18 @@ td.cell-secondary { display: table-cell; }
 .message-meta time { margin-top: 0; }
 .message-own .message-meta { justify-content: flex-end; }
 .message-receipt { overflow-wrap: anywhere; }
+.chat-attachment { max-width: min(320px, 100%); white-space: normal; }
+.chat-image-button.button { display: block; width: 100%; min-height: 0; padding: 0; overflow: hidden; border-radius: 6px; }
+.chat-image-button img { display: block; width: 100%; height: auto; max-height: 280px; object-fit: contain; }
+.attachment-caption { margin: 8px 0 0; }
+.chat-image-dialog { width: min(900px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 16px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
+.chat-image-dialog::backdrop { background: rgba(15, 23, 42, .65); }
+.chat-image-dialog img { display: block; width: 100%; height: auto; max-height: calc(100dvh - 120px); object-fit: contain; margin-top: 12px; }
+.attachment-preview { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px; border: 1px solid var(--color-border); border-radius: 6px; }
+.attachment-preview img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; }
+.attachment-preview span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.attachment-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; color: var(--color-text-muted); font-size: 12px; }
+.attachment-progress progress { width: 120px; accent-color: var(--color-primary); }
 .typing-indicator { min-height: 28px; padding: 0 24px 8px; color: var(--color-text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .composer { padding: 20px; border-top: 1px solid var(--color-border); background: #fff; }
 .composer form { display: grid; gap: 10px; }

@@ -1169,3 +1169,34 @@ The architecture is successful when:
 10. The application is understandable, maintainable, and runnable by a reviewer.
 
 **Final Principle: Build the simplest secure architecture that satisfies every mandatory assessment requirement.**
+
+## 21. B7 private image attachment storage (unverified implementation)
+
+Image bytes use a small local/S3 storage interface, while PostgreSQL remains the
+source of truth for messages and attachment metadata. `message_attachments` has a
+unique Message foreign key (one image per message), unique server-generated key,
+provider, validated MIME, byte size, dimensions, and a UUID. Existing Message
+history eager-loads this relationship alongside sender data, avoiding per-message
+attachment queries. The Alembic revision is `c7e4a682d193`, after `b5c8d41e92af`;
+it has been created but not applied in this implementation phase.
+
+The router delegates authenticated multipart uploads to the attachment service.
+The service authorizes the ticket, validates and canonicalizes image bytes, writes
+private storage, then uses the existing locked message workflow to atomically
+persist message/attachment metadata and ticket activity. Successful commits feed
+the existing room and ticket-list broadcasters; authorization is rechecked for
+delivery. Read requests reauthorize the ticket and attachment linkage before
+proxying bounded private bytes. No static upload mount or public S3 URL exists.
+
+The provider is persisted per attachment. Local storage uses UUID filenames and
+a dedicated Docker volume; S3 uses a private configured bucket/prefix and the SDK
+credential chain or configured credential pair. Changing bucket/local root requires
+object migration. DB and object storage are not atomic: definite uncommitted
+failures attempt cleanup, uncertain writes/commits retain objects for reconciliation.
+No garbage collector, distributed outbox, or additional WebSocket connection is added.
+
+The frontend uses the existing authenticated API/refresh flow for multipart upload
+and Blob retrieval. HTTP and room events merge by message ID, preserving read state
+and avoiding duplicate rendered messages. Object URLs and in-flight requests are
+cleaned up on unmount/logout. Image loading participates in conversation-viewed
+tracking. Runtime verification is deferred to `docs/ATTACHMENT_VERIFICATION.md`.

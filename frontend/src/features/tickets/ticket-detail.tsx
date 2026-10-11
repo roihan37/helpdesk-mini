@@ -3,14 +3,16 @@
 import { Icon } from "@/components/icon";
 import { Alert, Avatar, Badge, Button, EmptyState, LoadingPanel, Select, Textarea } from "@/components/ui";
 import { useAuth } from "@/features/auth/auth-provider";
-import { ApiError, apiRequest, friendlyError } from "@/lib/api";
-import { formatDateTime, nextTicketStatus, roleLabels, statusLabels } from "@/lib/domain";
+import { ApiError, apiRequest, friendlyError, onAccessTokenChanged } from "@/lib/api";
+import { formatDateTime, mergeMessages, nextTicketStatus, roleLabels, statusLabels } from "@/lib/domain";
 import { queryKeys } from "@/lib/query";
 import type { Message, TicketDetail, TicketStatus, User } from "@/types/api";
 import { type ConnectionState, useTicketSocket } from "@/hooks/use-ticket-socket";
 import { useTicketRead } from "@/hooks/use-ticket-read";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import Image from "next/image";
+import { ChatImage } from "@/features/tickets/chat-image";
 import { useParams } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
@@ -121,10 +123,32 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
   retryMessages: () => void
 }) {
   const [draft, setDraft] = useState("");
+  const queryClient = useQueryClient();
+  const [image, setImage] = useState<File | null>(null);
+  const [preview, setPreview] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const upload = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(0);
   const read = useTicketRead(ticket.id, currentUserId, messages, messagesReady, listRef);
   const [showNew, setShowNew] = useState(false);
+  useEffect(() => {
+    if (!image) { setPreview(""); return; }
+    const url = URL.createObjectURL(image);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
+  useEffect(() => {
+    const unsubscribe = onAccessTokenChanged((token) => {
+      if (token === null) { upload.current?.abort(); setImage(null); setDraft(""); }
+    });
+    return () => { upload.current?.abort(); unsubscribe(); };
+  }, []);
+  useEffect(() => {
+    if (!canSend) { upload.current?.abort(); setImage(null); socket.stopTyping(); }
+  }, [canSend, socket.stopTyping]);
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
@@ -133,9 +157,39 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
     else if (messages.length > previousCount.current) setShowNew(true);
     previousCount.current = messages.length;
   }, [messages.length]);
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (socket.send(draft)) setDraft("");
+    if (!canSend || uploading || upload.current || socket.sending || socket.connection !== "connected") return;
+    if (!image) { if (socket.send(draft)) setDraft(""); return; }
+    const controller = new AbortController();
+    upload.current = controller;
+    const body = new FormData();
+    body.append("image", image);
+    body.append("caption", draft.trim());
+    setUploading(true);
+    setUploadError("");
+    socket.stopTyping();
+    try {
+      const message = await apiRequest<Message>(`/tickets/${encodeURIComponent(ticket.id)}/messages/attachment`, {
+        method: "POST", body, signal: controller.signal
+      });
+      if (controller.signal.aborted) return;
+      queryClient.setQueryData<Message[]>(queryKeys.messages(ticket.id), (current = []) => mergeMessages(current, [message]));
+      void queryClient.invalidateQueries({ queryKey: ["tickets"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ticket(ticket.id) });
+      setImage(null);
+      setDraft("");
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setUploadError(`${friendlyError(error, "Upload failed.")} Check the conversation before retrying if the connection was interrupted.`);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.messages(ticket.id) });
+      }
+    } finally {
+      if (upload.current === controller) {
+        upload.current = null;
+        setUploading(false);
+      }
+    }
   }
   function jumpToNew() {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -170,7 +224,10 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
               <strong>{message.sender_name}</strong>
               <span className="message-role">{roleLabels[message.sender_role]}</span>
             </header>
-            <p className="message-bubble">{message.body}</p>
+            {message.attachment ? <div className="message-bubble">
+              <ChatImage ticketId={ticket.id} attachment={message.attachment} />
+              {message.body ? <p className="attachment-caption">{message.body}</p> : null}
+            </div> : message.body ? <p className="message-bubble">{message.body}</p> : null}
             <div className="message-meta">
               <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
               {message.sender_id === currentUserId ? <span className="message-receipt">
@@ -191,6 +248,8 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
       ? <Button className="new-messages" variant="secondary" onClick={jumpToNew}>New messages</Button>
       : null}
     <div className="composer">
+      {uploadError ? <Alert tone="error">{uploadError}</Alert> : null}
+      {uploading ? <div role="status" className="attachment-progress"><progress aria-label="Uploading image" /> Uploading image…</div> : null}
       {socket.error
         ? <Alert tone="error">
           {socket.error}
@@ -204,10 +263,26 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
         : role === "admin"
           ? <p className="read-only-note"><Icon name="lock" />Admins can review this conversation but cannot send messages.</p>
           : <form onSubmit={submit}>
+            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                if (!canSend || uploading) return;
+                if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024 || file.size === 0) {
+                  setUploadError("Choose a JPEG, PNG, or WebP image up to 5 MB."); return;
+                }
+                setUploadError(""); setImage(file);
+              }} />
+            {image ? <div className="attachment-preview">
+              {preview ? <Image src={preview} alt="Selected image preview" width={80} height={80} unoptimized /> : null}
+              <span>{image.name}</span>
+              <Button type="button" variant="quiet" disabled={uploading} onClick={() => setImage(null)}>Remove image</Button>
+            </div> : null}
             <label htmlFor="message-body">Reply to conversation</label>
             <Textarea
               id="message-body"
-              placeholder="Write a message…"
+              placeholder={image ? "Add an optional caption…" : "Write a message…"}
               aria-describedby="message-help"
               value={draft}
               onChange={(event) => {
@@ -217,7 +292,7 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
               onBlur={socket.stopTyping}
               maxLength={5000}
               rows={3}
-              disabled={!canSend || socket.connection !== "connected" || socket.sending}
+              disabled={!canSend || socket.connection !== "connected" || socket.sending || uploading}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
@@ -231,9 +306,11 @@ function Conversation({ ticket, messages, currentUserId, role, canSend, socket, 
                   ? "Enter to send · Shift+Enter for a new line"
                   : "Messages are available when the connection is live."}
               </span>
+              <Button type="button" variant="secondary" onClick={() => fileInput.current?.click()}
+                disabled={!canSend || socket.connection !== "connected" || socket.sending || uploading}>Attach image</Button>
               <Button
                 type="submit"
-                disabled={!draft.trim() || !canSend || socket.connection !== "connected" || socket.sending}
+                disabled={(!draft.trim() && !image) || !canSend || socket.connection !== "connected" || socket.sending || uploading}
               >
                 <Icon name="send" />
                 {socket.sending ? "Sending…" : "Send message"}

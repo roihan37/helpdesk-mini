@@ -45,9 +45,17 @@ services:
       <<: *app-environment
       DATABASE_URL: postgresql+psycopg://helpdesk_demo:local-demo-postgres-only@db:5432/helpdesk_mini_demo
       DEMO_SEED_PASSWORD: HelpdeskDemo2026!
+      STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
+      LOCAL_UPLOAD_DIR: /var/lib/helpdesk-uploads
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_REGION: "${AWS_REGION:-}"
+      AWS_BUCKET_NAME: "${AWS_BUCKET_NAME:-}"
+      AWS_S3_PREFIX: "${AWS_S3_PREFIX:-helpdesk-mini/attachments/}"
 
     volumes:
       - demo_backend_state:/var/lib/helpdesk-demo
+      - demo_uploads:/var/lib/helpdesk-uploads
 
     depends_on:
       db:
@@ -135,3 +143,4 @@ services:
 volumes:
   demo_postgres_data:
   demo_backend_state:
+  demo_uploads:

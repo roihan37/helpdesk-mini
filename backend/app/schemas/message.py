@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import TicketStatus, UserRole
 from app.schemas.common import StrictRequest
@@ -43,6 +43,16 @@ class MessageReadEvent(BaseModel):
     data: MessageReadData
 
 
+class AttachmentPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    mime_type: str
+    byte_size: int
+    width: int
+    height: int
+
+
 class MessagePublic(BaseModel):
     id: uuid.UUID
     # Decimal string preserves PostgreSQL BIGINT precision in JavaScript clients.
@@ -55,6 +65,11 @@ class MessagePublic(BaseModel):
     created_at: datetime
     # Populated only for the requesting sender's outgoing history.
     read_by: list[MessageReader] = Field(default_factory=list)
+    attachment: AttachmentPublic | None = None
+
+
+class MessageDataResponse(BaseModel):
+    data: MessagePublic
 
 
 class MessageListResponse(BaseModel):

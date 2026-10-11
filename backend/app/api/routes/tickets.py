@@ -1,14 +1,14 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import get_current_user
 from app.db.session import get_db, get_session_factory
 from app.models import TicketStatus, User
 from app.schemas.common import ErrorResponse
-from app.schemas.message import MessageListResponse
+from app.schemas.message import MessageDataResponse, MessageListResponse
 from app.schemas.ticket import (
     TicketCreateRequest,
     TicketDataResponse,
@@ -24,6 +24,8 @@ from app.schemas.ticket import (
     TicketUpdateRequest,
 )
 from app.services.messages import list_messages
+from app.services.attachments import create_image_message, retrieve_image
+from app.services.authorization import get_authorized_ticket
 from app.services.ticket_reads import mark_ticket_read
 from app.services.tickets import (
     create_ticket,
@@ -32,12 +34,62 @@ from app.services.tickets import (
     update_ticket_with_result,
 )
 from app.websocket.events import (
+    broadcast_message_created,
     broadcast_message_read,
     broadcast_ticket_list_event,
     broadcast_ticket_status_changed,
 )
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
+
+
+@router.post(
+    "/{ticket_id}/messages/attachment", response_model=MessageDataResponse, status_code=201,
+    responses={code: {"model": ErrorResponse} for code in (401, 403, 404, 409, 413, 422, 503)},
+)
+def upload_ticket_image(
+    ticket_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    session_factory: Annotated[sessionmaker[Session], Depends(get_session_factory)],
+    image: Annotated[UploadFile, File()],
+    caption: Annotated[str, Form(max_length=5000)] = "",
+) -> MessageDataResponse:
+    message = create_image_message(db, session_factory, ticket_id, current_user, image, caption)
+    ticket = get_authorized_ticket(db, ticket_id, current_user)
+    background_tasks.add_task(broadcast_message_created, session_factory, message)
+    background_tasks.add_task(
+        broadcast_ticket_list_event, session_factory, "ticket.message_created",
+        ticket.id, ticket.business_id, ticket.customer_id, ticket.updated_at,
+    )
+    return MessageDataResponse(data=message)
+
+
+@router.get(
+    "/{ticket_id}/attachments/{attachment_id}", response_class=Response,
+    responses={
+        200: {
+            "description": "Authorized private image bytes",
+            "content": {
+                mime: {"schema": {"type": "string", "format": "binary"}}
+                for mime in ("image/jpeg", "image/png", "image/webp")
+            },
+        },
+        **{code: {"model": ErrorResponse} for code in (401, 403, 404, 422, 503)},
+    },
+)
+def get_ticket_image(
+    ticket_id: uuid.UUID, attachment_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    content, mime = retrieve_image(db, ticket_id, attachment_id, current_user)
+    extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[mime]
+    return Response(content, media_type=mime, headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": f'inline; filename="{attachment_id}.{extension}"',
+    })
 
 
 @router.get(

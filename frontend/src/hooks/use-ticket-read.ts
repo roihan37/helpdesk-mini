@@ -55,6 +55,8 @@ export function useTicketRead(
         !list ||
         !list.clientHeight
       ) return false;
+      // Do not acknowledge an image that has not successfully rendered yet.
+      if (list.querySelector('[data-attachment-pending="true"]')) return false;
       if (list.scrollHeight - list.scrollTop - list.clientHeight > 8) return false;
       const last = list.lastElementChild;
       if (!last) return false;
@@ -172,12 +174,17 @@ export function useTicketRead(
     window.addEventListener("resize", schedule);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     if (listRef.current) observer?.observe(listRef.current);
+    const images = new MutationObserver(schedule);
+    if (listRef.current) images.observe(listRef.current, {
+      subtree: true, childList: true, attributes: true, attributeFilter: ["data-attachment-pending"]
+    });
     schedule();
     return () => {
       active = false;
       request?.abort();
       cancelAnimationFrame(frame);
       observer?.disconnect();
+      images.disconnect();
       unsubscribe();
       document.removeEventListener("visibilitychange", schedule);
       window.removeEventListener("scroll", schedule, true);

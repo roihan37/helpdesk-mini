@@ -1796,3 +1796,35 @@ HelpDesk Mini uses the backend as the single authority for:
 Every protected operation must be authenticated, authorized, and scoped to the correct business.
 
 **Security is verified through observable behavior and tests, not assumed from implementation structure.**
+
+## 25. B7 private attachment security (verification deferred)
+
+- Upload and retrieval require the existing access-token authentication. The server
+  enforces business isolation and Customer ownership before touching image storage.
+  Admin may retrieve but cannot upload; Agent/Customer may upload only while the
+  authorized ticket is not closed. A locked recheck handles concurrent closure.
+- Submitted filenames and identities do not determine storage paths or sender.
+  Keys are UUID-based; local paths are constrained and symlink writes rejected.
+  S3 keys stay under a validated configured prefix; writes do not set public ACLs.
+- Verify bytes as JPEG/PNG/WebP and match declared MIME, then fully decode and
+  canonicalize without original metadata/trailing payloads. Reject animation,
+  oversized input/output, excessive dimensions/pixels, and malformed images.
+  SVG, HTML, and arbitrary documents are not supported.
+- Responses expose only attachment metadata. Private bytes are proxied after
+  ticket/linkage authorization, with no-store and nosniff headers; access tokens
+  never appear in file URLs. Storage errors are generic and logs omit credentials,
+  tokens, filenames, and image contents.
+- Keep S3 Block Public Access enabled, encryption configured, and IAM privileges
+  scoped to the attachment prefix. Prefer IAM/SDK credential-chain access; never
+  commit real AWS keys. Local upload files must not be served by a static web server.
+- Multipart parsing occurs before the service size check and may spool request
+  bytes to temporary disk. Production needs upstream body-size/time limits,
+  temporary-disk limits, upload rate/quotas, and abuse monitoring. Image validation
+  is not malware scanning and cannot eliminate decoder CPU/memory exhaustion.
+- Storage/DB commits are not distributed transactions; uncertain failures may
+  retain orphan objects. Object cleanup after row deletion is not automatic.
+  Backups must cover both metadata and private bytes. Long browser image histories
+  retain Blob memory until cleanup; no sensitive data should be cached across users.
+
+These are implementation safeguards, not executed security-test evidence. See
+`docs/ATTACHMENT_VERIFICATION.md` for the required deferred isolation/abuse checks.

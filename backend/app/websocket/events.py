@@ -13,6 +13,8 @@ from app.core.errors import AppError
 from app.core.security import TokenValidationError, decode_token
 from app.models import Message, Ticket, TicketReadState, TicketStatus, User, UserRole
 from app.schemas.message import (
+    MessageCreatedEvent,
+    MessagePublic,
     MessageReadData,
     MessageReadEvent,
     TicketListEvent,
@@ -27,6 +29,13 @@ from app.services.authorization import get_authorized_ticket
 from app.websocket.manager import connection_manager
 
 logger = logging.getLogger(__name__)
+
+
+async def broadcast_message_created(session_factory: sessionmaker[Session], message: MessagePublic) -> None:
+    await _broadcast_room_event(
+        session_factory, message.ticket_id,
+        MessageCreatedEvent(data=message).model_dump(mode="json"),
+    )
 
 
 async def broadcast_ticket_list_event(

@@ -1939,3 +1939,44 @@ The API contract is considered implemented when:
 **Final Principle:** The backend is the authority for identity, permissions, tenant membership, ticket state, and message persistence.
 
 Frontend behavior must follow the backend contract and must never replace backend security enforcement.
+
+## 21. B7 private image attachments (implementation; verification deferred)
+
+`POST /tickets/{ticket_id}/messages/attachment` requires an access Bearer token
+and `multipart/form-data`: required `image` file and optional `caption` string
+(maximum 5000 characters, default empty). Only Agent and Customer may send.
+Tenant/Customer ownership checks and closed-ticket rejection apply, including a
+locked status recheck before message commit. One attachment per message is supported.
+
+Accepted MIME/content pairs are `image/jpeg`, `image/png`, and `image/webp`.
+Both submitted and canonical image bytes are bounded to 5 MiB; dimensions are
+limited to 8192 per side and 20 megapixels. Animated, malformed, MIME-mismatched,
+or unsupported files are rejected. Original filenames and metadata are discarded.
+
+Success is `201 {"data": <MessagePublic>}`. `MessagePublic` in HTTP history and
+`message.created` gains `attachment: null | {id, mime_type, byte_size, width, height}`.
+All existing message fields remain, with `body` carrying the optional caption.
+Storage keys, credentials, bucket names, and public URLs are never returned.
+`byte_size` describes the canonical stored image, not the original upload.
+
+`GET /tickets/{ticket_id}/attachments/{attachment_id}` uses the same access-token
+and ticket authorization. Admin may view authorized images. It returns image
+bytes with the stored MIME, `Cache-Control: private, no-store`,
+`X-Content-Type-Options: nosniff`, and a server-generated inline filename.
+Attachment IDs must belong to the requested authorized ticket; mismatches return
+404. The frontend fetches a Blob through the authenticated API client, not a
+public image URL or token-bearing URL.
+
+Errors use the existing API envelope: 401 authentication, 403 read-only sender,
+404 inaccessible/mismatched resource, 409 closed ticket, 413 oversized upload,
+422 invalid input/image, and 503 unavailable storage. Invalid UUIDs return 422.
+Underlying storage exceptions are not exposed. The upload has no idempotency key;
+clients should recover history before retrying an ambiguous timeout.
+
+After the database commit, the existing authorized ticket room receives
+`message.created` with attachment metadata, and the existing list subscription
+receives `ticket.message_created` with its unchanged minimal payload. No new
+WebSocket or image-byte WebSocket protocol is added. Delivery remains best-effort
+and single-process; history is authoritative. Existing unread/read-cursor behavior
+includes image messages; the client waits for inline image loading before marking
+the conversation viewed. Required deferred checks: `docs/ATTACHMENT_VERIFICATION.md`.

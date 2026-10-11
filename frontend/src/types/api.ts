@@ -73,6 +73,15 @@ export interface Message {
   created_at: string;
   /** Recipient-specific receipts, returned only for the viewer's own messages. */
   read_by?: MessageReader[];
+  attachment?: MessageAttachment | null;
+}
+
+export interface MessageAttachment {
+  id: string;
+  mime_type: "image/jpeg" | "image/png" | "image/webp";
+  byte_size: number;
+  width: number;
+  height: number;
 }
 
 export interface MessageReader {

@@ -106,13 +106,14 @@ interface RequestOptions extends RequestInit {
   auth?: boolean;
   retryAuth?: boolean;
   envelope?: boolean;
+  responseType?: "json" | "blob";
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}) {
-  const { auth = true, retryAuth = true, envelope = false, headers, ...init } = options;
+  const { auth = true, retryAuth = true, envelope = false, responseType = "json", headers, ...init } = options;
   const requestHeaders = new Headers(headers);
   requestHeaders.set("Accept", "application/json");
-  if (init.body) requestHeaders.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData)) requestHeaders.set("Content-Type", "application/json");
   if (auth && accessToken) requestHeaders.set("Authorization", `Bearer ${accessToken}`);
 
   const response = await fetch(
@@ -132,6 +133,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
     }
     return apiRequest<T>(path, { ...options, retryAuth: false });
   }
+  if (response.ok && responseType === "blob") return await response.blob() as T;
   return parseResponse<T>(response, envelope);
 }
 

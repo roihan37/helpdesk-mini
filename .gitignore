@@ -50,3 +50,5 @@ env/
 !.env.example
 !.env.compose.example
 !**/.env.example
+# Private local image attachments (also excluded from Docker build context).
+.uploads/
