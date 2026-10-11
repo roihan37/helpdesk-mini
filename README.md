@@ -12,6 +12,9 @@ lifecycle management. M5 provides verified persistent message history and authen
 ticket-scoped WebSocket chat with post-commit message and status events. M6 provides the verified
 responsive Next.js authentication, Ticket, real-time chat, and Admin Team interfaces, including
 real-browser role, tenant-isolation, reconnect, and two-client WebSocket workflows.
+M7 Phase 2 adds a safe, repeatable demo seed and reviewer-facing setup/demo documentation. Final
+M7 quality gates, clean-checkout rehearsal, browser/security verification, and video evidence
+remain pending Phase 3.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
@@ -25,9 +28,32 @@ The M0 checks were run with:
 
 Python 3.11 or later is supported. A PostgreSQL database and role matching `DATABASE_URL` must exist before running the database checks.
 
+From a fresh local PostgreSQL installation, create separate development and disposable test
+databases. The commands prompt for the role password and do not put it in shell history:
+
+```bash
+createuser --pwprompt helpdesk_user
+createdb --owner=helpdesk_user helpdesk_mini
+createdb --owner=helpdesk_user helpdesk_m7_test
+```
+
+If the role or databases already exist, reuse them only after confirming their purpose. Commands
+that downgrade migrations or run integration tests must target the disposable `*_test` database,
+never development or valuable data.
+
 ## Environment Configuration
 
-Use the backend section of [`.env.example`](.env.example) to create an ignored `backend/.env`, and the frontend section to create an ignored `frontend/.env.local`. Replace `JWT_SECRET` with a strong local value; the application has no fallback secret. Set `REFRESH_COOKIE_SECURE=false` only for local HTTP development and `true` when serving over HTTPS.
+From the repository root, copy the tracked template into the two ignored local files:
+
+```bash
+cp .env.example backend/.env
+cp .env.example frontend/.env.local
+```
+
+Replace `USER`, `PASSWORD`, and `JWT_SECRET` in `backend/.env`. The application has no fallback
+JWT secret. Set `REFRESH_COOKIE_SECURE=false` only for local HTTP development and `true` when
+serving over HTTPS. The backend ignores the frontend-only variables and Next.js exposes only the
+two `NEXT_PUBLIC_*` values from `frontend/.env.local`.
 
 `CORS_ORIGINS` is a comma-separated list of explicit origins, for example:
 
@@ -46,8 +72,15 @@ uv sync --all-groups
 uv run python -m app.db.check
 uv run alembic upgrade head
 uv run alembic heads
+DEMO_SEED_PASSWORD='<local-demo-only-password>' uv run python -m app.scripts.seed_demo --confirm-demo-data
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
+
+The seed requires explicit acknowledgement, a password of at least 12 characters, and a named
+PostgreSQL target. It refuses obvious production/system database names, never truncates tables,
+and aborts on incompatible existing demo keys. Rerunning it with the same password is idempotent;
+it preserves unrelated rows. Inspect `DATABASE_URL` before confirming. Do not save the supplied
+demo password in Git, `.env.example`, screenshots, or recordings.
 
 The intentionally public health endpoint is available at `http://127.0.0.1:8000/health` and returns only `{"status":"ok"}`. Swagger UI is available at `http://127.0.0.1:8000/docs`.
 
@@ -80,6 +113,27 @@ access is ownership-scoped, and inaccessible cross-tenant or cross-Customer tick
 
 For Postman refresh testing, use the cookie jar populated by `/auth/login`; `/auth/refresh` does not accept a refresh token in the JSON body.
 
+## Demo Data and Accounts
+
+All eight accounts use the one local-only password supplied as `DEMO_SEED_PASSWORD` when the seed
+is run. The password is intentionally not hardcoded in this repository.
+
+| Business | Slug | Role | Email |
+|---|---|---|---|
+| Northstar Support | `demo-northstar` | Admin | `admin@northstar.demo.test` |
+| Northstar Support | `demo-northstar` | Agent | `agent@northstar.demo.test` |
+| Northstar Support | `demo-northstar` | Customer | `customer1@northstar.demo.test` |
+| Northstar Support | `demo-northstar` | Customer | `customer2@northstar.demo.test` |
+| Orbit Services | `demo-orbit` | Admin | `admin@orbit.demo.test` |
+| Orbit Services | `demo-orbit` | Agent | `agent@orbit.demo.test` |
+| Orbit Services | `demo-orbit` | Customer | `customer1@orbit.demo.test` |
+| Orbit Services | `demo-orbit` | Customer | `customer2@orbit.demo.test` |
+
+The manifest also creates five tickets and seven messages: a Northstar open/unassigned chat
+ticket (`30000000-0000-4000-8000-000000000001`), an assigned ticket with history, resolved and
+closed restriction examples, and an Orbit isolation ticket
+(`30000000-0000-4000-8000-000000000005`). These stable IDs are demo data, not credentials.
+
 Backend validation commands:
 
 ```bash
@@ -92,11 +146,12 @@ uv run mypy app tests
 The full test suite includes destructive migration checks and therefore requires
 `DATABASE_URL`, `TEST_DATABASE_URL`, and `M1_TEST_DATABASE_URL` to point to an explicitly
 disposable PostgreSQL database whose name ends in `_test`. The verified local command below derives
-that URL without printing credentials. Never run these tests against a development or production
+that URL without printing credentials. Change its database name to the disposable database you
+created if necessary. Never run these tests against a development or production
 database.
 
 ```bash
-UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m5_test'); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
+UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m7_test'); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
 ```
 
 M5 Phase 4 ran the equivalent guarded setup against the disposable `helpdesk_m5_test` database.
@@ -143,7 +198,25 @@ E2E framework exists; the mandatory matrix was run through actual browser sessio
 inferred from unit tests or build success. Exact evidence is in the completed M6 execution plan.
 The production build intentionally uses Next.js's webpack builder.
 
-## Technical Decisions
+## Demo Checklist
+
+Use two isolated browser profiles and keep the backend at one worker. The target recording is 3-5
+minutes:
+
+1. Show Northstar and Orbit as separate businesses; open Northstar Customer 1 and Agent sessions.
+2. Customer 1 creates a ticket with its first message.
+3. The Agent sees and self-assigns the ticket.
+4. Customer and Agent exchange messages without refreshing; reload once to prove persistence.
+5. The Agent changes status and the Customer sees the committed update in real time.
+6. Close a ticket and show that further messages are disabled/rejected.
+7. While authenticated to Northstar, request the seeded Orbit ticket ID and show the non-disclosing 404.
+
+Demo video: **pending Phase 3 recording and reviewer-access verification**. Do not replace this
+text with a URL until the recording exists and access has been tested.
+
+## Catatan
+
+### Technical decisions
 
 - The application remains a modular monolith with a Next.js client, one FastAPI backend, and PostgreSQL as the source of truth.
 - Backend settings are required and typed. PostgreSQL URLs are validated, and SQLite is not used as a fallback.
@@ -164,7 +237,7 @@ The production build intentionally uses Next.js's webpack builder.
   one native WebSocket per mounted Ticket detail view.
 - Mandatory security and functional flows take priority over optional infrastructure and UI polish.
 
-## Known Limitations
+### Known limitations and unfinished work
 
 - Refresh tokens are stateless and are not rotated or immediately revocable in M2.
 - Refresh-cookie headers and CORS behavior are covered by TestClient, but persistence and
@@ -182,6 +255,9 @@ The production build intentionally uses Next.js's webpack builder.
   repository does not yet include a dedicated browser-E2E suite. A dedicated VoiceOver or other
   assistive-technology pass was not run; keyboard, focus, semantics, and responsive checks passed.
 - Database startup requires a locally provisioned PostgreSQL role and database matching `backend/.env`.
+- M7 Phase 3 still must rerun the complete backend/frontend quality gates, rehearse a clean checkout,
+  repeat real-browser security/E2E/responsive checks, and capture the required demo video. Phase 2
+  validation is preliminary and does not mark M7 complete.
 
 ## Milestone Roadmap
 
@@ -194,4 +270,4 @@ The production build intentionally uses Next.js's webpack builder.
 | M4 | Ticket management | Complete |
 | M5 | WebSocket chat | Complete |
 | M6 | Required frontend flows | Complete |
-| M7 | Final tests, seed data, documentation, and demo preparation | Not started |
+| M7 | Final tests, seed data, documentation, and demo preparation | Phase 2 implemented; Phase 3 verification pending |

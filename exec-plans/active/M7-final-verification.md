@@ -1,6 +1,6 @@
 # M7 - Final Verification & Submission
 
-Status: **PLANNED — awaiting Phase 2 approval**  
+Status: **PHASE 2 IMPLEMENTED — pending Phase 3 verification**
 Milestone owner: Engineering / QA / Security review  
 Scope: Final verification, safe demo data, reproducible setup, demo preparation, and submission readiness.
 
@@ -29,6 +29,64 @@ Baseline findings:
 - `.env.example` contains placeholders rather than observed real credentials. The current backend CORS parser accepts the documented comma-separated `CORS_ORIGINS` value.
 - No seed utility, demo-data manifest, or checked-in browser E2E framework was found.
 - Phase 1 did not rerun application tests and does not claim fresh M7 validation. Prior milestone results are inherited evidence only and must be revalidated in Phases 2-4.
+
+### Phase 2 implementation evidence — 2026-10-11
+
+Phase 2 completed the approved submission-preparation work without changing application APIs or
+starting Phase 3:
+
+| Task | Result | Evidence |
+| --- | --- | --- |
+| M7-01 | COMPLETE | Reconfirmed clean Phase 1 baseline at commit `ad43617`, reviewed the focused M0-M6 history, and mapped mandatory requirements to final gates below. |
+| M7-02 | COMPLETE | Added the transactional, idempotent `app.scripts.seed_demo` command with explicit confirmation, supplied-password validation, tenant relationship checks, conflict rollback, and protected-target refusal. |
+| M7-03 | COMPLETE | Added PostgreSQL tests for the exact 2-business/8-user manifest, role distribution, password hashes, relationships, idempotence, unrelated-row preservation, rollback, and target guards. |
+| M7-04 | COMPLETE for Phase 2 | Updated `.env.example` and README with consistent CORS origins, PostgreSQL setup, safe seed use, eight-account manifest, verified commands, demo checklist, decisions, and limitations. Clean-checkout timing remains a Phase 3 gate. |
+
+Mandatory requirement traceability and final owners:
+
+| Requirement area | Current evidence source | Final owner/gate |
+| --- | --- | --- |
+| JWT separation, password hashing, RBAC, tenant/customer isolation | M2-M5 implementation/tests and completed plans | M7-05 automated regressions and M7-08 security audit |
+| Ticket creation, first message, listing, assignment, lifecycle, and closed restrictions | M4 tests and M6 browser evidence | M7-07 functional browser E2E |
+| Persistent chat, room isolation, live messages/status, reconnect, cleanup | M5 tests and M6 two-session evidence | M7-07 functional E2E and M7-08 security audit |
+| Six required responsive frontend routes and role UX | Frontend source/tests and M6 review | M7-07 and M7-09 browser/accessibility review |
+| PostgreSQL schema and Alembic history | Backend migration and M1-M6 evidence | M7-05 migration/quality gate and M7-06 clean setup |
+| Two-business/eight-user representative demo data | Phase 2 seed implementation and 34-test focused run | M7-05 regression, M7-06 fresh seed, and M7-10 demo |
+| Reproducible setup and reviewer documentation | Phase 2 README and environment template | M7-06 timed clean-checkout rehearsal |
+| Demo and repository submission readiness | Phase 2 checklist; video remains pending | M7-10 demo capture and M7-11 submission audit |
+
+Phase 2 validation actually executed:
+
+```text
+PASS  cd backend && UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff format --check app/scripts tests/test_seed_demo.py
+PASS  cd backend && UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run ruff check app/scripts tests/test_seed_demo.py
+PASS  cd backend && UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run mypy app/scripts tests/test_seed_demo.py
+PASS  cd backend && UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m compileall -q app/scripts tests/test_seed_demo.py
+PASS  cd backend && UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -m app.scripts.seed_demo --help
+PASS  focused PostgreSQL run on disposable `helpdesk_m5_test`: tests/test_seed_demo.py + tests/test_models.py — 34 passed
+PASS  seed command executed twice on disposable `helpdesk_m5_test` — both reported 2 businesses, 8 users, 5 tickets, and 7 messages
+PASS  `.env.example` comma-separated localhost/127.0.0.1 CORS value parsed into two explicit origins
+PASS  git diff --check; local backend/frontend env files remain ignored; current-tree private-key/access-key marker scan returned no matches
+FAIL  first sandboxed PostgreSQL attempt — local port access was denied by the execution sandbox; no application assertion ran
+FAIL  first database-wrapper retry — inspection wrapper imported the wrong settings module; corrected before any database write
+FAIL  safety assertion against the configured development database — correctly stopped before writes because the target did not end in `_test`
+FIXED initial protected-target regex did not recognize hyphenated production names; corrected and covered by regression tests
+```
+
+The successful integration command derived the disposable target from configured connection
+settings without printing its credentials and assigned it to `DATABASE_URL`, `TEST_DATABASE_URL`,
+and `M1_TEST_DATABASE_URL` before invoking pytest. Full backend/frontend gates, migrations, clean
+setup timing, browser E2E/security/responsive review, video capture, and final secret/repository
+audit are intentionally **NOT RUN** until Phase 3.
+
+Phase 2 files created or modified:
+
+- `backend/app/scripts/__init__.py`
+- `backend/app/scripts/seed_demo.py`
+- `backend/tests/test_seed_demo.py`
+- `.env.example`
+- `README.md`
+- `exec-plans/active/M7-final-verification.md`
 
 ## 3. Scope
 
@@ -549,11 +607,11 @@ The following evidence is required before M7 can be marked complete:
 
 ## 12. Phase boundaries and approval gate
 
-- **Phase 1 (this document):** inspection, gap analysis, and implementation-ready planning only.
-- **Phase 2:** approved seed, documentation, and submission preparation work.
+- **Phase 1:** inspection, gap analysis, and implementation-ready planning; complete.
+- **Phase 2:** approved seed, documentation, and submission preparation work; implemented and preliminarily validated.
 - **Phase 3:** final automated tests, clean setup, actual browser E2E/security/responsive checks, and demo validation.
 - **Phase 4:** final audit and conditional milestone closure.
 
-No Phase 2 implementation may begin without user approval. M7 remains active and is **not complete**.
+M7 remains active and is **not complete**. Phase 3 must not begin without user review.
 
-Phase 1 disposition: **READY FOR M7 PHASE 2 REVIEW**.
+Phase 2 disposition: **IMPLEMENTED, PENDING PHASE 3 VERIFICATION**.
