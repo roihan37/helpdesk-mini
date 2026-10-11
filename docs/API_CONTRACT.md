@@ -139,7 +139,8 @@ For collections:
 }
 ```
 
-Do not introduce unnecessary pagination metadata until pagination is implemented.
+`GET /tickets` also returns a `pagination` object, as documented in TICKET-01. Other
+collection endpoints retain the envelope above.
 
 ### 3.2 Error Response
 
@@ -708,10 +709,17 @@ These rules follow the assessment's defined lifecycle and documented reopen path
 GET /tickets
 ```
 
-Optional query parameter:
+Optional query parameters:
+
+| Parameter | Default | Validation / behavior |
+| --- | --- | --- |
+| `page` | `1` | Integer from 1 to 2,147,483,647. |
+| `page_size` | `20` | Integer from 1 to 100. |
+| `search` | None | Up to 150 characters; trimmed, case-insensitive subject substring. Blank search is ignored. `%` and `_` are literal characters, not wildcards. |
+| `status` | None | `open`, `in_progress`, `resolved`, or `closed`. |
 
 ```http
-GET /tickets?status=open
+GET /tickets?status=open&search=account&page=1&page_size=20
 ```
 
 **Access:** All authenticated roles  
@@ -738,7 +746,13 @@ GET /tickets?status=open
         "name": "Support Agent"
       }
     }
-  ]
+  ],
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "total_items": 1,
+    "total_pages": 1
+  }
 }
 ```
 
@@ -747,14 +761,18 @@ GET /tickets?status=open
 - Admin sees all tickets within their business.
 - Agent sees all tickets within their business.
 - Customer sees only their own tickets.
-- Filter by `status` when provided.
-- Order by `updated_at` descending.
-- Return an empty array when no tickets match.
+- Apply business and Customer ownership restrictions to both results and counts.
+- Apply status and subject search filters, count matching tickets, and paginate in the database.
+- Order by `updated_at` descending, then `id` descending for deterministic ties.
+- `total_items` counts all authorized matches, not just the current page.
+- `total_pages` is the ceiling of `total_items / page_size`, or 0 for no matches.
+- Return an empty `data` array for no matches or a page beyond the last page; preserve
+  the requested page and filtered totals in metadata.
 
 **Possible Errors**
 
 - 401: Unauthenticated.
-- 422: Invalid status filter.
+- 422: Invalid status, page, page size, or search input.
 
 ---
 

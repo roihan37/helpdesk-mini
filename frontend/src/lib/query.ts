@@ -16,7 +16,8 @@ export function createQueryClient() {
 
 export const queryKeys = {
   me: ["me"] as const,
-  tickets: (status?: string) => ["tickets", { status: status || "all" }] as const,
+  tickets: (filters: { status?: string; search: string; page: number; page_size: number }) =>
+    ["tickets", filters] as const,
   ticket: (id: string) => ["ticket", id] as const,
   messages: (id: string) => ["ticket-messages", id] as const,
   users: ["users"] as const,

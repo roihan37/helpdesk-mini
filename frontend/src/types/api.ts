@@ -30,6 +30,16 @@ export interface UserSummary {
   name: string;
 }
 
+export interface TicketListResponse {
+  data: TicketListItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
 export interface TicketListItem {
   id: string;
   business_id: string;

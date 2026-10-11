@@ -3,7 +3,7 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.dependencies import require_roles
@@ -29,12 +29,22 @@ class TicketUpdateResult:
     status_changed: bool
 
 
+@dataclass(frozen=True)
+class TicketPage:
+    items: list[Ticket]
+    total_items: int
+
+
 def list_tickets(
     db: Session,
     current_user: User,
     status: TicketStatus | None = None,
-) -> list[Ticket]:
-    """List tickets in the authenticated user's permitted scope."""
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    search: str | None = None,
+) -> TicketPage:
+    """Count and paginate the same tenant/ownership-scoped database query."""
     require_roles(
         current_user,
         {UserRole.ADMIN, UserRole.AGENT, UserRole.CUSTOMER},
@@ -44,14 +54,22 @@ def list_tickets(
         predicates.append(Ticket.customer_id == current_user.id)
     if status is not None:
         predicates.append(Ticket.status == status)
+    if search and search.strip():
+        # Bound parameters and escaped LIKE wildcards make search a literal substring.
+        predicates.append(Ticket.subject.icontains(search.strip(), autoescape=True))
 
+    total_items = db.scalar(select(func.count()).select_from(Ticket).where(*predicates))
     statement = (
         select(Ticket)
         .options(selectinload(Ticket.assigned_agent))
         .where(*predicates)
         .order_by(Ticket.updated_at.desc(), Ticket.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
-    return list(db.scalars(statement).all())
+    return TicketPage(
+        items=list(db.scalars(statement).all()), total_items=total_items or 0
+    )
 
 
 def create_ticket(

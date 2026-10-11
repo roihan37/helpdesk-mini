@@ -201,8 +201,11 @@ does not assume tokens were issued.
 **Header:** Role-aware title (“Tickets” for staff, “My tickets” for Customer), one-line context, and
 Customer-only “New ticket” primary action.
 
-**Filter:** Labelled Status select with All, Open, In progress, Resolved, and Closed. The selected
-value is represented in the URL. No search, pagination, sorting control, bulk action, or analytics.
+**Filters (B3 extension):** Labelled subject Search input and Status select with All, Open,
+In progress, Resolved, and Closed. Search is debounced by 350ms. Search, status, and page are
+represented in the URL; changing search or status resets page to 1. Previous/Next controls show
+the current page, total pages, and authorized result count. Disable pagination during loading or
+pending search. Retain the existing table/mobile list design; no sorting control, bulk action, or analytics.
 
 **Desktop table columns:** Subject, Status, Priority, Assigned to, Latest activity. The complete row
 is a navigation target without nesting invalid interactive controls. Display “Unassigned” plainly.
@@ -217,7 +220,8 @@ muted metadata. Use a list, not a squeezed table.
 - Loading: header/filter remain; render 5 row-shaped skeletons.
 - Empty unfiltered: Customer sees “No tickets yet” plus New ticket; staff sees “No tickets in this
   business yet” without invented actions.
-- Empty filtered: “No tickets match this status” plus Clear filter.
+- Empty filtered: “No tickets match these filters” plus Clear filters.
+- Empty page with matching results: “No tickets on this page” plus First page.
 - Error: concise inline Alert with Retry; keep current filter.
 - Refetch: keep existing rows and show subtle “Updating…” status rather than blanking the page.
 
@@ -428,6 +432,9 @@ M6 does not design or implement Analytics, Billing, Reports, Notifications Cente
 pagination, search, Ticket deletion, user edit/delete/invite/reset, typing indicators, read receipts,
 attachments, presence, unread badges, or backend logout/revocation. Empty visual space must not be
 filled with fake product functionality.
+
+The separately approved B3 extension adds Ticket subject search and server-side pagination to
+the existing list, without changing the original M6 page design.
 
 ## 12. Design Review Checklist
 

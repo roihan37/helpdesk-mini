@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/lib/domain.test.ts"
+    "test": "node --test src/lib/domain.test.ts src/features/tickets/ticket-list-query.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",

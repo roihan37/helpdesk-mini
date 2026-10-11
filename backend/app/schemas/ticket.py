@@ -82,5 +82,13 @@ class TicketDetailResponse(BaseModel):
     data: TicketDetail
 
 
+class TicketPagination(BaseModel):
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
 class TicketListResponse(BaseModel):
     data: list[TicketListItem]
+    pagination: TicketPagination

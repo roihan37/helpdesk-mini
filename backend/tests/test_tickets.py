@@ -425,7 +425,15 @@ def test_list_tickets_enforces_tenant_owner_filter_and_order(
     ]
     assert agent_response.json()["data"] == admin_response.json()["data"]
     assert [item["id"] for item in customer_response.json()["data"]] == [str(older.id)]
-    assert empty_response.json() == {"data": []}
+    assert empty_response.json() == {
+        "data": [],
+        "pagination": {
+            "page": 1,
+            "page_size": 20,
+            "total_items": 0,
+            "total_pages": 0,
+        },
+    }
     assert [item["id"] for item in filtered.json()["data"]] == [str(newer.id)]
     invalid = client.get("/tickets?status=unknown", headers=bearer(admin_a))
     assert error_signature(invalid)[:2] == (422, "VALIDATION_ERROR")
@@ -462,6 +470,193 @@ def test_list_tickets_supports_all_status_filters_and_deterministic_ties(
             headers=bearer(admin),
         )
         assert [item["id"] for item in filtered.json()["data"]] == [str(ticket.id)]
+
+
+def test_ticket_pagination_defaults_boundaries_counts_and_order(
+    client: TestClient, db: Session
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    now = datetime.now(UTC)
+    tickets = [
+        add_ticket(db, business, customer, updated_at=now + timedelta(seconds=index))
+        for index in range(25)
+    ]
+    expected_ids = [str(ticket.id) for ticket in reversed(tickets)]
+
+    first = client.get("/tickets", headers=bearer(admin)).json()
+    assert first["pagination"] == {
+        "page": 1,
+        "page_size": 20,
+        "total_items": 25,
+        "total_pages": 2,
+    }
+    assert [item["id"] for item in first["data"]] == expected_ids[:20]
+    second = client.get("/tickets?page=2", headers=bearer(admin)).json()
+    assert second["pagination"] == {**first["pagination"], "page": 2}
+    assert [item["id"] for item in second["data"]] == expected_ids[20:]
+    beyond = client.get("/tickets?page=3", headers=bearer(admin)).json()
+    assert beyond["data"] == []
+    assert beyond["pagination"] == {**first["pagination"], "page": 3}
+    maximum = client.get("/tickets?page_size=100", headers=bearer(admin)).json()
+    assert [item["id"] for item in maximum["data"]] == expected_ids
+    assert maximum["pagination"]["total_pages"] == 1
+    minimum = client.get("/tickets?page_size=1&page=25", headers=bearer(admin)).json()
+    assert [item["id"] for item in minimum["data"]] == expected_ids[-1:]
+    assert minimum["pagination"]["total_pages"] == 25
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "page=0",
+        "page=-1",
+        "page=1.5",
+        "page=invalid",
+        "page=2147483648",
+        "page_size=0",
+        "page_size=-1",
+        "page_size=101",
+        "page_size=1.5",
+        "page_size=invalid",
+        "search=" + "a" * 151,
+    ],
+)
+def test_ticket_pagination_rejects_invalid_parameters(
+    client: TestClient, db: Session, query: str
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    response = client.get(f"/tickets?{query}", headers=bearer(admin))
+    assert error_signature(response)[:2] == (422, "VALIDATION_ERROR")
+
+
+def test_ticket_search_scopes_counts_before_pagination(
+    client: TestClient, db: Session
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    agent = add_user(db, business, UserRole.AGENT)
+    owner = add_user(db, business, UserRole.CUSTOMER)
+    other = add_user(db, business, UserRole.CUSTOMER)
+    foreign_business = add_business(db)
+    foreign_owner = add_user(db, foreign_business, UserRole.CUSTOMER)
+    now = datetime.now(UTC)
+    owned = [
+        add_ticket(
+            db,
+            business,
+            owner,
+            subject=f"Billing ISSUE {index}",
+            updated_at=now + timedelta(seconds=index),
+        )
+        for index in range(23)
+    ]
+    resolved = add_ticket(
+        db,
+        business,
+        other,
+        subject="billing issue resolved",
+        status=TicketStatus.RESOLVED,
+    )
+    add_ticket(db, business, other, subject="Unrelated support")
+    for _ in range(5):
+        add_ticket(db, foreign_business, foreign_owner, subject="Billing issue foreign")
+
+    for user in (admin, agent):
+        response = client.get(
+            "/tickets",
+            params={"search": "  bILLing issue  ", "page_size": 5, "page": 2},
+            headers=bearer(user),
+        ).json()
+        assert response["pagination"] == {
+            "page": 2,
+            "page_size": 5,
+            "total_items": 24,
+            "total_pages": 5,
+        }
+        assert len(response["data"]) == 5
+        assert all(item["business_id"] == str(business.id) for item in response["data"])
+
+    own_page = client.get(
+        "/tickets?search=billing&page=2", headers=bearer(owner)
+    ).json()
+    assert own_page["pagination"]["total_items"] == 23
+    assert own_page["pagination"]["total_pages"] == 2
+    assert [item["id"] for item in own_page["data"]] == [
+        str(ticket.id) for ticket in reversed(owned[:3])
+    ]
+    assert all(item["customer_id"] == str(owner.id) for item in own_page["data"])
+    filtered = client.get(
+        "/tickets?search=BILLING&status=resolved", headers=bearer(admin)
+    ).json()
+    assert [item["id"] for item in filtered["data"]] == [str(resolved.id)]
+    assert filtered["pagination"]["total_items"] == 1
+    hidden = client.get("/tickets?search=foreign", headers=bearer(admin)).json()
+    assert hidden["data"] == []
+    assert hidden["pagination"]["total_items"] == 0
+    hidden_owner = client.get("/tickets?search=resolved", headers=bearer(owner)).json()
+    assert hidden_owner["data"] == []
+    assert hidden_owner["pagination"]["total_pages"] == 0
+    blank = client.get("/tickets?search=%20%20", headers=bearer(admin)).json()
+    assert blank["pagination"]["total_items"] == 25
+
+
+@pytest.mark.parametrize("search", ["%", "_", "/", "' OR 1=1 --"])
+def test_ticket_search_treats_wildcards_and_sql_as_literal_text(
+    client: TestClient, db: Session, search: str
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    matching = add_ticket(db, business, customer, subject=f"Literal {search} text")
+    add_ticket(db, business, customer, subject="Ordinary subject")
+
+    response = client.get("/tickets", params={"search": search}, headers=bearer(admin))
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["data"]] == [str(matching.id)]
+    assert response.json()["pagination"]["total_items"] == 1
+
+
+def test_ticket_pagination_uses_database_limit_and_batched_agent_loading(
+    client: TestClient, db: Session
+) -> None:
+    business = add_business(db)
+    admin = add_user(db, business, UserRole.ADMIN)
+    agent = add_user(db, business, UserRole.AGENT)
+    customer = add_user(db, business, UserRole.CUSTOMER)
+    for _ in range(6):
+        add_ticket(db, business, customer, assigned_agent=agent)
+    statements: list[str] = []
+
+    def capture(
+        connection: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    connection = db.connection()
+    event.listen(connection, "before_cursor_execute", capture)
+    try:
+        response = client.get("/tickets?page_size=3", headers=bearer(admin))
+    finally:
+        event.remove(connection, "before_cursor_execute", capture)
+    assert response.status_code == 200
+    assert len(response.json()["data"]) == 3
+    assert all(
+        item["assigned_agent"]["id"] == str(agent.id)
+        for item in response.json()["data"]
+    )
+    ticket_queries = [sql for sql in statements if "FROM tickets" in sql]
+    assert len(ticket_queries) == 2  # one scoped COUNT and one limited page
+    assert "count(" in ticket_queries[0].lower()
+    assert "LIMIT" in ticket_queries[1] and "OFFSET" in ticket_queries[1]
+    assert len([sql for sql in statements if "FROM users" in sql]) == 2  # auth + batch
 
 
 def test_detail_hides_foreign_and_other_customer_tickets(

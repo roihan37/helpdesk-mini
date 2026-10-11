@@ -1,33 +1,49 @@
 "use client";
 
 import { Icon } from "@/components/icon";
-import { Alert, Avatar, Badge, Button, EmptyState, Field, Select, Skeleton } from "@/components/ui";
+import { Alert, Avatar, Badge, Button, EmptyState, Field, Input, Select, Skeleton } from "@/components/ui";
 import { useAuth } from "@/features/auth/auth-provider";
 import { apiRequest } from "@/lib/api";
 import { formatDateTime, statusLabels } from "@/lib/domain";
 import { queryKeys } from "@/lib/query";
-import type { TicketListItem, TicketStatus } from "@/types/api";
+import type { TicketListItem, TicketListResponse } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-
-const statuses: TicketStatus[] = ["open", "in_progress", "resolved", "closed"];
+import { useEffect, useState } from "react";
+import { readTicketListFilters, ticketListApiPath, ticketListHref, ticketSearchDelay, ticketStatuses } from "./ticket-list-query";
 
 export function TicketListPage() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawStatus = searchParams.get("status");
-  const status = statuses.includes(rawStatus as TicketStatus) ? rawStatus as TicketStatus : undefined;
+  const params = searchParams.toString();
+  const filters = readTicketListFilters(searchParams);
+  const { status, search, page } = filters;
+  const [draft, setDraft] = useState({ source: search, value: search });
+  // Reconcile URL navigation without remounting the input or losing keyboard focus.
+  if (draft.source !== search) setDraft({ source: search, value: search });
+  const searchInput = draft.source === search ? draft.value : search;
+  const searchPending = searchInput.trim() !== search;
+  useEffect(() => {
+    if (!searchPending) return;
+    const timer = setTimeout(() => {
+      router.replace(ticketListHref(params, { search: searchInput }), { scroll: false });
+    }, ticketSearchDelay);
+    return () => clearTimeout(timer);
+  }, [params, router, searchInput, searchPending]);
   const tickets = useQuery({
-    queryKey: queryKeys.tickets(status),
-    queryFn: () => apiRequest<TicketListItem[]>(`/tickets${status ? `?status=${encodeURIComponent(status)}` : ""}`)
+    queryKey: queryKeys.tickets(filters),
+    queryFn: () => apiRequest<TicketListResponse>(ticketListApiPath(filters), { envelope: true })
   });
   function updateStatus(value: string) {
-    const next = new URLSearchParams(searchParams.toString());
-    if (value) next.set("status", value); else next.delete("status");
-    router.replace(`/tickets${next.size ? `?${next}` : ""}`);
+    router.replace(ticketListHref(params, { status: value, search: searchInput }), { scroll: false });
   }
+  function updatePage(value: number) {
+    router.replace(ticketListHref(params, { page: value }), { scroll: false });
+  }
+  const items = tickets.data?.data;
+  const pagination = tickets.data?.pagination;
   return <div className="page-stack">
     <header className="page-header">
       <div>
@@ -47,9 +63,19 @@ export function TicketListPage() {
         <div className="panel-heading">
           <Icon name="tickets" />
           <h2>{status ? statusLabels[status] : "All tickets"}</h2>
-          {tickets.data ? <span className="count-label">{tickets.data.length}</span> : null}
+          {pagination ? <span className="count-label">{pagination.total_items}</span> : null}
         </div>
-        <div className="filter-row">
+        <div className="filter-row ticket-filters">
+          <Field label="Search" name="ticket-search">
+            <Input
+              id="ticket-search"
+              type="search"
+              placeholder="Search subjects"
+              maxLength={150}
+              value={searchInput}
+              onChange={(event) => setDraft({ source: search, value: event.target.value })}
+            />
+          </Field>
           <Field label="Status" name="status-filter">
             <Select
               id="status-filter"
@@ -57,10 +83,10 @@ export function TicketListPage() {
               onChange={(event) => updateStatus(event.target.value)}
             >
               <option value="">All statuses</option>
-              {statuses.map((item) => <option key={item} value={item}>{statusLabels[item]}</option>)}
+              {ticketStatuses.map((item) => <option key={item} value={item}>{statusLabels[item]}</option>)}
             </Select>
           </Field>
-          {tickets.isFetching && !tickets.isLoading
+          {searchPending || (tickets.isFetching && !tickets.isLoading)
             ? <span className="updating" role="status">Updating…</span>
             : null}
         </div>
@@ -71,12 +97,17 @@ export function TicketListPage() {
         </div>
         : null}
       {tickets.isLoading ? <TicketListSkeleton /> : null}
-      {tickets.data && tickets.data.length === 0
-        ? status
+      {items && items.length === 0
+        ? pagination && pagination.total_items > 0
           ? <EmptyState
-            title="No tickets match this status"
-            action={<Button variant="secondary" onClick={() => updateStatus("")}>Clear filter</Button>}
-          >Try another status to see more tickets.</EmptyState>
+            title="No tickets on this page"
+            action={<Button variant="secondary" onClick={() => updatePage(1)}>Go to first page</Button>}
+          >Tickets may have changed since this page was opened.</EmptyState>
+          : search || status
+          ? <EmptyState
+            title="No tickets match these filters"
+            action={<Button variant="secondary" onClick={() => router.replace(ticketListHref(params, { status: "", search: "" }), { scroll: false })}>Clear filters</Button>}
+          >Try a different subject or status to see more tickets.</EmptyState>
           : <EmptyState
             title={user?.role === "customer" ? "No tickets yet" : "No tickets in this business yet"}
             action={user?.role === "customer"
@@ -88,11 +119,17 @@ export function TicketListPage() {
               : "New support requests will appear here."}
           </EmptyState>
         : null}
-      {tickets.data && tickets.data.length > 0 ? <TicketRows tickets={tickets.data} /> : null}
-      {tickets.data && tickets.data.length > 0
-        ? <div className="panel-footer">
-          <span>{tickets.data.length} {tickets.data.length === 1 ? "ticket" : "tickets"}{status ? ` · ${statusLabels[status]}` : ""}</span>
-          <span>Latest activity first</span>
+      {items && items.length > 0 ? <TicketRows tickets={items} /> : null}
+      {pagination
+        ? <div className="panel-footer ticket-pagination">
+          <span role="status" aria-live="polite">
+            {pagination.total_items} {pagination.total_items === 1 ? "ticket" : "tickets"} · Latest activity first
+          </span>
+          <nav aria-label="Ticket pagination">
+            <Button variant="secondary" disabled={page <= 1 || tickets.isFetching || searchPending} onClick={() => updatePage(page - 1)}>Previous</Button>
+            <span>Page {pagination.page} of {Math.max(1, pagination.total_pages)}</span>
+            <Button variant="secondary" disabled={page >= pagination.total_pages || tickets.isFetching || searchPending} onClick={() => updatePage(page + 1)}>Next</Button>
+          </nav>
         </div>
         : null}
     </section>

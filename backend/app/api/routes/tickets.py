@@ -16,6 +16,7 @@ from app.schemas.ticket import (
     TicketDetailResponse,
     TicketListItem,
     TicketListResponse,
+    TicketPagination,
     TicketPublic,
     TicketUpdateRequest,
 )
@@ -40,10 +41,21 @@ def list_ticket_records(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     ticket_status: Annotated[TicketStatus | None, Query(alias="status")] = None,
+    page: Annotated[int, Query(ge=1, le=2_147_483_647)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    search: Annotated[str | None, Query(max_length=150)] = None,
 ) -> TicketListResponse:
-    tickets = list_tickets(db, current_user, ticket_status)
+    tickets = list_tickets(
+        db, current_user, ticket_status, page=page, page_size=page_size, search=search
+    )
     return TicketListResponse(
-        data=[TicketListItem.model_validate(ticket) for ticket in tickets]
+        data=[TicketListItem.model_validate(ticket) for ticket in tickets.items],
+        pagination=TicketPagination(
+            page=page,
+            page_size=page_size,
+            total_items=tickets.total_items,
+            total_pages=(tickets.total_items + page_size - 1) // page_size,
+        ),
     )
 
 

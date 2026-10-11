@@ -44,7 +44,7 @@ function reportAuthLoss() {
   authLossListeners.forEach((listener) => listener());
 }
 
-async function parseResponse<T>(response: Response): Promise<T> {
+async function parseResponse<T>(response: Response, envelope = false): Promise<T> {
   const payload = (await response.json().catch(() => null)) as
     | { data?: T }
     | ApiErrorPayload
@@ -61,7 +61,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (!payload || !("data" in payload)) {
     throw new ApiError(500, "INVALID_RESPONSE", "The server returned an invalid response.");
   }
-  return payload.data as T;
+  return (envelope ? payload : payload.data) as T;
 }
 
 export async function refreshAccessToken() {
@@ -97,10 +97,11 @@ export async function refreshAccessToken() {
 interface RequestOptions extends RequestInit {
   auth?: boolean;
   retryAuth?: boolean;
+  envelope?: boolean;
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}) {
-  const { auth = true, retryAuth = true, headers, ...init } = options;
+  const { auth = true, retryAuth = true, envelope = false, headers, ...init } = options;
   const requestHeaders = new Headers(headers);
   requestHeaders.set("Accept", "application/json");
   if (init.body) requestHeaders.set("Content-Type", "application/json");
@@ -123,7 +124,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
     }
     return apiRequest<T>(path, { ...options, retryAuth: false });
   }
-  return parseResponse<T>(response);
+  return parseResponse<T>(response, envelope);
 }
 
 export async function login(email: string, password: string) {

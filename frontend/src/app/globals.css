@@ -168,6 +168,11 @@ h2 { font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -.015
 .filter-row .field { display: flex; align-items: center; gap: 10px; }
 .filter-row .field > label { color: var(--color-text-muted); font-size: 12px; font-weight: 400; }
 .filter-row .select { width: 148px; font-size: 13px; }
+.ticket-filters { flex-wrap: wrap; }
+.ticket-filters .field { min-width: 0; }
+.ticket-filters .control[type="search"] { width: 220px; font-size: 13px; }
+.ticket-pagination { flex-wrap: wrap; align-items: center; }
+.ticket-pagination nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .updating { color: var(--color-text-muted); font-size: 12px; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
@@ -289,6 +294,8 @@ td.cell-secondary { display: table-cell; }
   .filter-row { width: 100%; }
   .filter-row .field { flex: 1; min-width: 0; }
   .filter-row .select { width: 100%; font-size: 14px; }
+  .ticket-filters .control[type="search"] { width: 100%; font-size: 16px; }
+  .ticket-filters .field { flex-basis: 100%; }
   .panel-description { font-size: 11px; }
   .panel-feedback { padding: 16px; }
   .panel-footer { padding: 12px 16px; font-size: 11px; }
