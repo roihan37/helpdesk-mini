@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.security import verify_password
 from app.models import Business, Message, Ticket, User
 from app.models.enums import TicketStatus, UserRole
+from app.schemas.auth import LoginRequest
 from app.scripts.seed_demo import (
     BUSINESS_SPECS,
     MESSAGE_SPECS,
@@ -19,7 +20,6 @@ from app.scripts.seed_demo import (
     seed_demo,
     validate_database_target,
 )
-from app.schemas.auth import LoginRequest
 
 PASSWORD = "local-demo-password-2026"
 BUSINESS_IDS = tuple(spec.id for spec in BUSINESS_SPECS)

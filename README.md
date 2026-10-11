@@ -12,9 +12,10 @@ lifecycle management. M5 provides verified persistent message history and authen
 ticket-scoped WebSocket chat with post-commit message and status events. M6 provides the verified
 responsive Next.js authentication, Ticket, real-time chat, and Admin Team interfaces, including
 real-browser role, tenant-isolation, reconnect, and two-client WebSocket workflows.
-M7 Phase 2 adds a safe, repeatable demo seed and reviewer-facing setup/demo documentation. Final
-M7 quality gates, clean-checkout rehearsal, browser/security verification, and video evidence
-remain pending Phase 3.
+M7 adds a safe, repeatable demo seed and reviewer-facing setup/demo documentation. The final M7
+audit reran the backend, PostgreSQL, frontend, migration, seed, browser, security, and repository
+quality gates. The milestone remains active pending final-revision setup verification, formal
+assistive-technology/contrast evidence, and the 3-5 minute demo recording.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
 
@@ -211,7 +212,7 @@ minutes:
 6. Close a ticket and show that further messages are disabled/rejected.
 7. While authenticated to Northstar, request the seeded Orbit ticket ID and show the non-disclosing 404.
 
-Demo video: **pending Phase 3 recording and reviewer-access verification**. Do not replace this
+Demo video: **pending final recording and reviewer-access verification**. Do not replace this
 text with a URL until the recording exists and access has been tested.
 
 ## Catatan
@@ -255,9 +256,10 @@ text with a URL until the recording exists and access has been tested.
   repository does not yet include a dedicated browser-E2E suite. A dedicated VoiceOver or other
   assistive-technology pass was not run; keyboard, focus, semantics, and responsive checks passed.
 - Database startup requires a locally provisioned PostgreSQL role and database matching `backend/.env`.
-- M7 Phase 3 still must rerun the complete backend/frontend quality gates, rehearse a clean checkout,
-  repeat real-browser security/E2E/responsive checks, and capture the required demo video. Phase 2
-  validation is preliminary and does not mark M7 complete.
+- M7 final audit passed the complete backend/frontend gates, disposable PostgreSQL migration and
+  seed checks, real-browser E2E/security flows, and a measured working-candidate setup rehearsal.
+  A dedicated assistive-technology/contrast pass, a 3-5 minute demo recording, and verification
+  from the immutable final revision remain outstanding, so M7 is not complete.
 
 ## Milestone Roadmap
 
@@ -270,4 +272,4 @@ text with a URL until the recording exists and access has been tested.
 | M4 | Ticket management | Complete |
 | M5 | WebSocket chat | Complete |
 | M6 | Required frontend flows | Complete |
-| M7 | Final tests, seed data, documentation, and demo preparation | Phase 2 implemented; Phase 3 verification pending |
+| M7 | Final tests, seed data, documentation, and demo preparation | Final audit complete; pending final evidence |

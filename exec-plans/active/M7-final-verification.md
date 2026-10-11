@@ -1,6 +1,6 @@
 # M7 - Final Verification & Submission
 
-Status: **PHASE 3 EXECUTED — BLOCKED pending responsive/accessibility and timed demo evidence**
+Status: **PHASE 4 AUDITED — PENDING VERIFICATION**
 Milestone owner: Engineering / QA / Security review  
 Scope: Final verification, safe demo data, reproducible setup, demo preparation, and submission readiness.
 
@@ -642,7 +642,7 @@ available, without exposing the demo password, cookies, tokens, or `.env` conten
 M7-05, M7-07, and M7-08 pass. M7-06 is partially verified; M7-09 and M7-10 lack mandatory manual
 evidence. No mandatory functional or critical security failure remains, but the final verification
 matrix requires these outstanding gates, so the milestone stays active and Phase 3 status is
-**BLOCKED**. Phase 4 has not started.
+**BLOCKED**.
 
 Remaining manual verification steps for the final candidate:
 
@@ -659,6 +659,83 @@ Remaining manual verification steps for the final candidate:
 4. Rehearse and record the seven-step demo from the seeded final candidate in one 3-5 minute run.
    Confirm the recording reveals no password entry, cookie/token, `.env`, or private browser data,
    and verify reviewer access before adding its location to submission documentation.
+
+## Phase 4 final audit evidence (2026-10-11)
+
+Phase 4 reviewed the actual working candidate and reran the applicable release gates. Destructive
+database checks targeted only explicitly named disposable databases ending in `_test`; no valuable
+database was reset, downgraded, or dropped.
+
+### Final gate results
+
+| Gate | Result | Final evidence |
+| --- | --- | --- |
+| Backend quality | PASS | Ruff format/lint, mypy, compile, and the full PostgreSQL suite passed: 148 tests, 1 upstream Starlette warning. |
+| Migration integrity | PASS | Alembic reported one head (`a3930ac451be`); disposable downgrade-to-base and re-upgrade succeeded; required tables and the `(business_id, status)` index were present. |
+| Frontend quality | PASS | ESLint, TypeScript, 3/3 domain tests, webpack production build, and runtime dependency audit passed. All six required routes were emitted by the build. |
+| Seed | PASS | Two consecutive runs produced exactly 2 businesses, 8 users, 5 tickets, and 7 messages; each business had 1 Admin, 1 Agent, and 2 Customers. |
+| Functional E2E | PASS | Phase 3 real-browser/FastAPI/PostgreSQL evidence covers registration/login, user and ticket workflows, two-client chat, persistence, live status, reopen, and closed-ticket rejection. |
+| Security | PASS | Phase 3 external REST/WebSocket probe plus the final 148-test regression verified tenant/customer 404 behavior, RBAC, JWT type separation, handshake/room isolation, hashing, and commit-before-broadcast behavior. |
+| Clean setup | NOT RUN for immutable final revision | A fresh temporary candidate rehearsal completed through seeded Admin login in approximately 44 seconds, but it copied the final uncommitted fixes into the clone. The user must commit the reviewed candidate before an exact-revision rehearsal is possible. |
+| Responsive/accessibility | NOT RUN in full | Final browser checks found no login-page overflow at 320/375/768/1440 px and confirmed labels, a `main` landmark, and a visible 2 px focus outline. M6 already covered all six routes at those widths, but a final all-route keyboard, screen-reader, and formal contrast pass was not run. |
+| Demo | NOT RUN | The checklist covers all seven required moments and Phase 3 exercised them, but no single timed 3-5 minute rehearsal/recording or reviewer-accessible link exists. |
+| Submission/repository | PASS with documented scanner limitation | Required artifacts and public reviewer access were confirmed; generated/env files are untracked; manual current/history pattern review found placeholders and test-only values only. `gitleaks`/`trufflehog` were unavailable. |
+
+### Commands and outcomes
+
+```text
+PASS  cd backend && uv run ruff format --check app alembic tests             (54 files)
+PASS  cd backend && uv run ruff check app alembic tests
+PASS  cd backend && uv run mypy app tests                                    (52 source files)
+PASS  cd backend && uv run python -m compileall -q app alembic tests
+PASS  cd backend && uv run alembic heads                                     (a3930ac451be)
+PASS  full pytest with DATABASE_URL/TEST_DATABASE_URL/M1_TEST_DATABASE_URL set
+      to disposable helpdesk_m7_phase4_suite_test                            (148 passed, 1 warning)
+PASS  disposable alembic downgrade base && alembic upgrade head
+PASS  seed command twice on disposable database                              (2/8/5/7 both times)
+PASS  cd frontend && npm run lint
+PASS  cd frontend && npm run typecheck
+PASS  cd frontend && npm test                                                (3 passed)
+PASS  cd frontend && npm run build                                           (6 required routes)
+PASS  cd frontend && npm audit --omit=dev                                    (0 vulnerabilities)
+PASS  cd frontend && npm run dev -- --hostname 127.0.0.1 --port 3000
+PASS  fresh temporary candidate: uv sync --frozen --all-groups, migration,
+      DB check, seed twice, npm ci, build, both servers, health, /login, and
+      seeded Admin login                                                      (~44 seconds)
+PASS  git diff --check; generated/env tracked-file check; manual current and
+      historical secret-pattern review; anonymous GitHub HEAD lookup
+NOT RUN  dedicated gitleaks/trufflehog scan (tools unavailable)
+NOT RUN  final screen-reader/formal contrast audit
+NOT RUN  single timed 3-5 minute demo recording and link verification
+NOT RUN  exact immutable-final-revision setup rehearsal (no agent commit allowed)
+```
+
+Two audit-harness failures were excluded from application results: one pytest invocation imported
+cached settings before setting the disposable URL, and one fresh-setup probe expected a top-level
+`access_token` instead of the documented response envelope after login had already returned 200.
+The former ran only a no-op `upgrade head` on the configured development database; it did not reset,
+downgrade, or delete data. Both commands were corrected or classified without weakening tests.
+
+### Release-blocking defects and fixes
+
+1. The final Ruff run found import ordering in `tests/test_seed_demo.py`; the import was reordered,
+   and the complete backend gates then passed.
+2. `npm run dev` used the default Turbopack path and the browser displayed
+   `Cannot find module '@vercel/turbopack/postcss'`. The existing development script now explicitly
+   uses Next.js Webpack, matching the already-verified production builder. The repaired server
+   reached Ready state and `/login` returned HTTP 200 and rendered successfully.
+
+No P0 functional, authorization, tenant-isolation, persistence, or secret-exposure defect remains.
+The full npm audit still reports five high-severity development-only advisories in the ESLint chain;
+the production dependency audit reports zero, and npm's proposed automated fix is a breaking
+downgrade, so it was not applied.
+
+### Phase 4 decision
+
+M7 remains in `exec-plans/active/` with status **PENDING VERIFICATION**. It is not eligible for
+conditional closure because final assistive-technology/contrast evidence, a timed 3-5 minute demo
+recording/link, and an exact immutable-revision setup rehearsal are absent. The required application
+and security behavior is passing, but the submission evidence defined by this plan is incomplete.
 
 ### M7-11 — Audit submission and repository hygiene
 
@@ -768,6 +845,5 @@ The following evidence is required before M7 can be marked complete:
 - **Phase 3:** final automated tests, clean setup, actual browser E2E/security/responsive checks, and demo validation.
 - **Phase 4:** final audit and conditional milestone closure.
 
-M7 remains active and is **not complete**. Phase 3 must not begin without user review.
-
-Phase 2 disposition: **IMPLEMENTED, PENDING PHASE 3 VERIFICATION**.
+M7 remains active and is **not complete**. Phase 4 is audited and the milestone is
+**PENDING VERIFICATION** until the outstanding final evidence recorded above is supplied.
