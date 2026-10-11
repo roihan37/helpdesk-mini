@@ -4,7 +4,7 @@ import { getAccessToken, refreshAccessToken } from "@/lib/api";
 import { mergeMessages } from "@/lib/domain";
 import { WS_URL } from "@/lib/env";
 import { queryKeys } from "@/lib/query";
-import type { Message, TicketDetail, TicketListItem, WebSocketEvent } from "@/types/api";
+import type { Message, TicketDetail, WebSocketEvent } from "@/types/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
@@ -78,10 +78,6 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
             queryKeys.ticket(ticketId),
             (current) => current ? { ...current, updated_at: event.data.created_at } : current
           );
-          queryClient.setQueriesData<TicketListItem[]>(
-            { queryKey: ["tickets"] },
-            (current) => current?.map((ticket) => ticket.id === ticketId ? { ...ticket, updated_at: event.data.created_at } : ticket)
-          );
           if (event.data.sender_id === currentUserId && event.data.body === pendingBody.current) {
             pendingBody.current = null;
             setSending(false);
@@ -90,12 +86,6 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
           queryClient.setQueryData<TicketDetail>(
             queryKeys.ticket(ticketId),
             (current) => current ? { ...current, status: event.data.status, updated_at: event.data.updated_at } : current
-          );
-          queryClient.setQueriesData<TicketListItem[]>(
-            { queryKey: ["tickets"] },
-            (current) => current?.map((ticket) => ticket.id === ticketId
-              ? { ...ticket, status: event.data.status, updated_at: event.data.updated_at }
-              : ticket)
           );
         } else if (event.type === "error") {
           setError(event.data.message);

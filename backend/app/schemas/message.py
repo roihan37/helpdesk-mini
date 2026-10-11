@@ -44,6 +44,24 @@ class TicketStatusChangedEvent(BaseModel):
     data: TicketStatusChangedData
 
 
+TicketListEventType = Literal[
+    "ticket.created",
+    "ticket.message_created",
+    "ticket.status_changed",
+    "ticket.assignment_changed",
+]
+
+
+class TicketListEventData(BaseModel):
+    ticket_id: uuid.UUID
+    updated_at: datetime
+
+
+class TicketListEvent(BaseModel):
+    type: TicketListEventType
+    data: TicketListEventData
+
+
 class WebSocketErrorData(BaseModel):
     code: Literal[
         "FORBIDDEN",

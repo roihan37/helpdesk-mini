@@ -143,12 +143,6 @@ def scenario(session_factory: sessionmaker[Session]) -> Iterator[ChatScenario]:
     )
     yield result
 
-    ticket_ids = [
-        open_ticket.id,
-        resolved_ticket.id,
-        closed_ticket.id,
-        external_ticket.id,
-    ]
     user_ids = [
         owner.id,
         other_customer.id,
@@ -158,6 +152,14 @@ def scenario(session_factory: sessionmaker[Session]) -> Iterator[ChatScenario]:
         external_customer.id,
     ]
     with session_factory() as db:
+        # Include tickets created through the API, only in these unique fixtures.
+        ticket_ids = list(
+            db.scalars(
+                select(Ticket.id).where(
+                    Ticket.business_id.in_([business.id, other_business.id])
+                )
+            )
+        )
         db.execute(delete(Message).where(Message.ticket_id.in_(ticket_ids)))
         db.execute(delete(Ticket).where(Ticket.id.in_(ticket_ids)))
         db.execute(delete(User).where(User.id.in_(user_ids)))
@@ -814,3 +816,270 @@ def test_disconnect_removes_live_room_membership(
     assert (
         asyncio.run(connection_manager.connection_count(scenario.open_ticket.id)) == 0
     )
+
+
+def _list_url(user: User) -> str:
+    return f"/ws/tickets?token={_access(user)}"
+
+
+def _create_list_ticket(client: TestClient, user: User, subject: str) -> dict[str, Any]:
+    response = client.post(
+        "/tickets",
+        headers={"Authorization": f"Bearer {_access(user)}"},
+        json={
+            "subject": subject,
+            "category": "support",
+            "priority": "medium",
+            "message": "Private first message",
+        },
+    )
+    assert response.status_code == 201
+    return cast(dict[str, Any], response.json()["data"])
+
+
+def test_list_create_events_are_committed_minimal_and_user_scoped(
+    client: TestClient,
+    scenario: ChatScenario,
+    session_factory: sessionmaker[Session],
+) -> None:
+    headers = {"origin": _origin()}
+    with (
+        client.websocket_connect(_list_url(scenario.owner), headers=headers) as owner,
+        client.websocket_connect(_list_url(scenario.agent), headers=headers) as agent,
+        client.websocket_connect(_list_url(scenario.admin), headers=headers) as admin,
+        client.websocket_connect(
+            _list_url(scenario.other_customer), headers=headers
+        ) as other,
+        client.websocket_connect(
+            _list_url(scenario.external_agent), headers=headers
+        ) as external,
+    ):
+        created = _create_list_ticket(client, scenario.owner, "Northstar private")
+        expected = {
+            "type": "ticket.created",
+            "data": {
+                "ticket_id": created["id"],
+                "updated_at": created["updated_at"],
+            },
+        }
+        assert owner.receive_json() == expected
+        assert agent.receive_json() == expected
+        assert admin.receive_json() == expected
+        with session_factory() as db:
+            persisted = db.get(Ticket, uuid.UUID(created["id"]))
+            assert persisted is not None
+            assert persisted.customer_id == scenario.owner.id
+            assert (
+                db.scalar(
+                    select(func.count(Message.id)).where(
+                        Message.ticket_id == persisted.id
+                    )
+                )
+                == 1
+            )
+
+        # Marker events prove unauthorized events were not queued, without sleeps.
+        orbit = _create_list_ticket(client, scenario.external_customer, "Orbit private")
+        assert external.receive_json()["data"]["ticket_id"] == orbit["id"]
+        own_marker = _create_list_ticket(client, scenario.owner, "Northstar next")
+        assert owner.receive_json()["data"]["ticket_id"] == own_marker["id"]
+        assert agent.receive_json()["data"]["ticket_id"] == own_marker["id"]
+        assert admin.receive_json()["data"]["ticket_id"] == own_marker["id"]
+        other_marker = _create_list_ticket(
+            client, scenario.other_customer, "Other private"
+        )
+        assert other.receive_json()["data"]["ticket_id"] == other_marker["id"]
+
+
+def test_list_message_event_matches_persistence_and_paginated_activity(
+    client: TestClient, scenario: ChatScenario
+) -> None:
+    headers = {"origin": _origin()}
+    with (
+        client.websocket_connect(_list_url(scenario.owner), headers=headers) as listing,
+        client.websocket_connect(
+            _ws_url(scenario.open_ticket, scenario.owner), headers=headers
+        ) as chat,
+    ):
+        chat.send_json({"type": "message.send", "body": "List activity persisted"})
+        message = chat.receive_json()
+        event = listing.receive_json()
+        history = client.get(
+            f"/tickets/{scenario.open_ticket.id}/messages",
+            headers={"Authorization": f"Bearer {_access(scenario.owner)}"},
+        )
+        tickets = client.get(
+            "/tickets?page=1&page_size=1&search=OPEN&status=open",
+            headers={"Authorization": f"Bearer {_access(scenario.owner)}"},
+        )
+    assert message["type"] == "message.created"
+    assert history.status_code == tickets.status_code == 200
+    assert history.json()["data"][-1] == message["data"]
+    assert event == {
+        "type": "ticket.message_created",
+        "data": {
+            "ticket_id": str(scenario.open_ticket.id),
+            "updated_at": tickets.json()["data"][0]["updated_at"],
+        },
+    }
+    assert tickets.json()["pagination"] == {
+        "page": 1,
+        "page_size": 1,
+        "total_items": 1,
+        "total_pages": 1,
+    }
+
+
+def test_list_status_assignment_events_follow_commits_and_skip_noops(
+    client: TestClient,
+    scenario: ChatScenario,
+    session_factory: sessionmaker[Session],
+) -> None:
+    auth = {"Authorization": f"Bearer {_access(scenario.admin)}"}
+    with client.websocket_connect(
+        _list_url(scenario.owner), headers={"origin": _origin()}
+    ) as listing:
+        for payload, event_type in [
+            (
+                {"assigned_agent_id": str(scenario.agent.id)},
+                "ticket.assignment_changed",
+            ),
+            ({"status": "in_progress"}, "ticket.status_changed"),
+        ]:
+            response = client.patch(
+                f"/tickets/{scenario.open_ticket.id}", headers=auth, json=payload
+            )
+            assert response.status_code == 200
+            event = listing.receive_json()
+            assert event == {
+                "type": event_type,
+                "data": {
+                    "ticket_id": str(scenario.open_ticket.id),
+                    "updated_at": response.json()["data"]["updated_at"],
+                },
+            }
+            with session_factory() as db:
+                persisted = db.get(Ticket, scenario.open_ticket.id)
+                assert persisted is not None
+                assert persisted.assigned_agent_id == scenario.agent.id
+                if "status" in payload:
+                    assert persisted.status == TicketStatus.IN_PROGRESS
+
+        noop = client.patch(
+            f"/tickets/{scenario.open_ticket.id}",
+            headers=auth,
+            json={"status": "in_progress", "assigned_agent_id": str(scenario.agent.id)},
+        )
+        invalid = client.patch(
+            f"/tickets/{scenario.open_ticket.id}",
+            headers=auth,
+            json={"status": "closed"},
+        )
+        marker = _create_list_ticket(client, scenario.owner, "After noop and rejection")
+        assert noop.status_code == 200
+        assert invalid.status_code == 409
+        assert listing.receive_json()["data"]["ticket_id"] == marker["id"]
+
+
+@pytest.mark.parametrize("credential", ["missing", "invalid", "refresh", "expired"])
+def test_list_rejects_unauthorized_handshakes(
+    client: TestClient, scenario: ChatScenario, credential: str
+) -> None:
+    urls = {
+        "missing": "/ws/tickets",
+        "invalid": "/ws/tickets?token=invalid",
+        "refresh": f"/ws/tickets?token={_refresh(scenario.owner)}",
+        "expired": f"/ws/tickets?token={_expired_access(scenario.owner)}",
+    }
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect(urls[credential], headers={"origin": _origin()}):
+            pytest.fail("Unauthorized list handshake accepted")
+    assert error.value.code == 1008
+
+
+def test_list_rechecks_current_role_before_every_delivery(
+    client: TestClient,
+    scenario: ChatScenario,
+    session_factory: sessionmaker[Session],
+) -> None:
+    with client.websocket_connect(
+        _list_url(scenario.agent), headers={"origin": _origin()}
+    ) as listing:
+        with session_factory() as db:
+            user = db.get(User, scenario.agent.id)
+            assert user is not None
+            user.role = UserRole.CUSTOMER
+            db.commit()
+        _create_list_ticket(client, scenario.owner, "Not owned after role change")
+        own = _create_list_ticket(client, scenario.agent, "Owned after role change")
+        assert listing.receive_json()["data"]["ticket_id"] == own["id"]
+
+
+def test_list_removes_deleted_users_and_disconnects_cleanly(
+    client: TestClient,
+    scenario: ChatScenario,
+    session_factory: sessionmaker[Session],
+) -> None:
+    baseline = len(connection_manager._subscriptions)
+    with client.websocket_connect(
+        _list_url(scenario.external_agent), headers={"origin": _origin()}
+    ) as listing:
+        assert len(connection_manager._subscriptions) == baseline + 1
+        with session_factory() as db:
+            db.execute(delete(User).where(User.id == scenario.external_agent.id))
+            db.commit()
+        _create_list_ticket(client, scenario.owner, "Revalidate all subscriptions")
+        with pytest.raises(WebSocketDisconnect) as error:
+            listing.receive_json()
+        assert error.value.code == 1008
+    assert len(connection_manager._subscriptions) == baseline
+    with client.websocket_connect(
+        _list_url(scenario.owner), headers={"origin": _origin()}
+    ):
+        assert len(connection_manager._subscriptions) == baseline + 1
+    assert len(connection_manager._subscriptions) == baseline
+
+
+def test_list_rejects_untrusted_origins_and_client_mutations(
+    client: TestClient, scenario: ChatScenario
+) -> None:
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect(
+            _list_url(scenario.owner), headers={"origin": "https://untrusted.invalid"}
+        ):
+            pytest.fail("Untrusted origin accepted")
+    assert error.value.code == 1008
+    for binary in [False, True]:
+        with client.websocket_connect(
+            _list_url(scenario.owner), headers={"origin": _origin()}
+        ) as listing:
+            if binary:
+                listing.send_bytes(b"untrusted scope")
+            else:
+                listing.send_json({"business_id": str(scenario.other_business.id)})
+            with pytest.raises(WebSocketDisconnect) as error:
+                listing.receive_json()
+            assert error.value.code == 1008
+
+
+def test_failed_ticket_transactions_do_not_schedule_list_events(
+    client: TestClient, scenario: ChatScenario, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broadcaster = AsyncMock()
+    monkeypatch.setattr(ticket_routes, "broadcast_ticket_list_event", broadcaster)
+
+    def fail_commit(db: Session) -> None:
+        db.flush()
+        raise RuntimeError("forced rollback")
+
+    monkeypatch.setattr(Session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="forced rollback"):
+        _create_list_ticket(client, scenario.owner, "Never published")
+    with pytest.raises(RuntimeError, match="forced rollback"):
+        client.patch(
+            f"/tickets/{scenario.open_ticket.id}",
+            headers={"Authorization": f"Bearer {_access(scenario.agent)}"},
+            json={"status": "in_progress"},
+        )
+    broadcaster.assert_not_awaited()
+    monkeypatch.undo()

@@ -10,6 +10,7 @@ let accessToken: string | null = null;
 let refreshPromise: Promise<string> | null = null;
 let authEpoch = 0;
 const authLossListeners = new Set<() => void>();
+const tokenListeners = new Set<(token: string | null) => void>();
 
 export class ApiError extends Error {
   constructor(
@@ -28,7 +29,14 @@ export function getAccessToken() {
 }
 
 export function setAccessToken(token: string | null) {
+  if (token === accessToken) return;
   accessToken = token;
+  tokenListeners.forEach((listener) => listener(token));
+}
+
+export function onAccessTokenChanged(listener: (token: string | null) => void) {
+  tokenListeners.add(listener);
+  return () => { tokenListeners.delete(listener); };
 }
 
 export function onAuthLost(listener: () => void) {
@@ -40,7 +48,7 @@ export function onAuthLost(listener: () => void) {
 
 function reportAuthLoss() {
   authEpoch += 1;
-  accessToken = null;
+  setAccessToken(null);
   authLossListeners.forEach((listener) => listener());
 }
 

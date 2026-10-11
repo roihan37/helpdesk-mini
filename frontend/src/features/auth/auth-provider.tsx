@@ -2,6 +2,7 @@
 
 import { apiRequest, login as loginRequest, logout as logoutRequest, onAuthLost, refreshAccessToken } from "@/lib/api";
 import { createQueryClient, queryKeys } from "@/lib/query";
+import { TicketListLiveProvider } from "@/features/tickets/ticket-list-live-provider";
 import type { CurrentUser } from "@/types/api";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -61,7 +62,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }, [bootstrap]);
   const value = useMemo(() => ({ state, user, signIn, signOut, retryBootstrap }), [retryBootstrap, signIn, signOut, state, user]);
   return <QueryClientProvider client={queryClient}>
-    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={value}>
+      <TicketListLiveProvider userId={state === "authenticated" ? user?.id ?? null : null}>{children}</TicketListLiveProvider>
+    </AuthContext.Provider>
   </QueryClientProvider>;
 }
 

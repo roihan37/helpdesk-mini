@@ -12,9 +12,11 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { readTicketListFilters, ticketListApiPath, ticketListHref, ticketSearchDelay, ticketStatuses } from "./ticket-list-query";
+import { useTicketListLive } from "./ticket-list-live-provider";
 
 export function TicketListPage() {
   const { user } = useAuth();
+  const live = useTicketListLive();
   const router = useRouter();
   const searchParams = useSearchParams();
   const params = searchParams.toString();
@@ -58,6 +60,13 @@ export function TicketListPage() {
         ? <Link className="button button-primary" href="/tickets/new"><Icon name="plus" />New ticket</Link>
         : null}
     </header>
+    {live.notice ? <Alert>{live.notice}</Alert> : null}
+    {live.connection === "reconnecting"
+      ? <Alert>Live updates are disconnected. Reconnecting automatically; you can still use the ticket list.</Alert>
+      : null}
+    {live.connection === "offline"
+      ? <Alert>Live updates are unavailable. You can still use the ticket list; sign in again if your session has expired.</Alert>
+      : null}
     <section className="data-panel" aria-label="Ticket list">
       <div className="panel-toolbar">
         <div className="panel-heading">

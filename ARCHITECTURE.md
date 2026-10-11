@@ -737,8 +737,17 @@ Responsibilities:
 - Remove disconnected clients.
 - Broadcast events to active ticket participants.
 - Handle disconnected or failed connections safely.
+- B4 adds a separate authenticated ticket-list subscription per frontend session. After a
+  successful commit, publish only activity type, Ticket ID, and activity timestamp. Revalidate
+  access-token expiration and current database User role/business in a batched lookup before
+  delivery: Admin/Agent receive own-business activity; Customers receive only their own tickets.
+- Keep ticket-room chat separate from list notifications. The frontend coalesces list events
+  into REST cache invalidation, preserving server-side pagination, search, and status filtering.
 
 **Limitation:** In-memory connection management only supports broadcasting within one backend process.
+
+Notifications are best-effort, without a durable queue/outbox. Reconnecting list subscriptions
+refetch REST state to recover missed activity; PostgreSQL remains the source of truth.
 
 Multi-process deployments would require shared messaging infrastructure.
 

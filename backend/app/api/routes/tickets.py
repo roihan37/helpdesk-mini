@@ -2,10 +2,10 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import get_current_user
-from app.db.session import get_db
+from app.db.session import get_db, get_session_factory
 from app.models import TicketStatus, User
 from app.schemas.common import ErrorResponse
 from app.schemas.message import MessageListResponse
@@ -27,7 +27,10 @@ from app.services.tickets import (
     list_tickets,
     update_ticket_with_result,
 )
-from app.websocket.events import broadcast_ticket_status_changed
+from app.websocket.events import (
+    broadcast_ticket_list_event,
+    broadcast_ticket_status_changed,
+)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -71,10 +74,21 @@ def list_ticket_records(
 )
 def create_ticket_record(
     payload: TicketCreateRequest,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    session_factory: Annotated[sessionmaker[Session], Depends(get_session_factory)],
 ) -> TicketDataResponse:
     ticket = create_ticket(db, current_user, payload)
+    background_tasks.add_task(
+        broadcast_ticket_list_event,
+        session_factory,
+        "ticket.created",
+        ticket.id,
+        ticket.business_id,
+        ticket.customer_id,
+        ticket.updated_at,
+    )
     return TicketDataResponse(data=TicketPublic.model_validate(ticket))
 
 
@@ -122,6 +136,7 @@ def update_ticket_record(
     background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    session_factory: Annotated[sessionmaker[Session], Depends(get_session_factory)],
 ) -> TicketDetailResponse:
     result = update_ticket_with_result(db, ticket_id, current_user, payload)
     ticket = result.ticket
@@ -130,6 +145,25 @@ def update_ticket_record(
             broadcast_ticket_status_changed,
             ticket.id,
             TicketStatus(ticket.status),
+            ticket.updated_at,
+        )
+        background_tasks.add_task(
+            broadcast_ticket_list_event,
+            session_factory,
+            "ticket.status_changed",
+            ticket.id,
+            ticket.business_id,
+            ticket.customer_id,
+            ticket.updated_at,
+        )
+    if result.assignment_changed:
+        background_tasks.add_task(
+            broadcast_ticket_list_event,
+            session_factory,
+            "ticket.assignment_changed",
+            ticket.id,
+            ticket.business_id,
+            ticket.customer_id,
             ticket.updated_at,
         )
     return TicketDetailResponse(data=TicketDetail.model_validate(ticket))

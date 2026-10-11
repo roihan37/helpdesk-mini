@@ -1138,6 +1138,41 @@ The assessment explicitly grants chat replies to Agents and Customers but does n
 
 This implementation choice must remain consistent with `ARCHITECTURE.md`.
 
+### 10.4 B4 Ticket-List Subscription
+
+```text
+WS /ws/tickets?token=<access_token>
+```
+
+This server-to-client stream is separate from ticket-room chat. Validate allowed Origin, JWT
+signature/expiration/access type, and the current database User before accepting. No client
+scope parameters or client messages are supported; text/binary frames close with `1008`.
+
+After committed ticket creation, message persistence, status changes, or assignment changes,
+emit respectively `ticket.created`, `ticket.message_created`, `ticket.status_changed`, or
+`ticket.assignment_changed`. Unchanged assignments and failed transactions emit no list event.
+All four events use the same minimal envelope:
+
+```json
+{
+  "type": "ticket.message_created",
+  "data": {
+    "ticket_id": "b35b276d-d8e7-4bf8-a3bc-6ea2879bce81",
+    "updated_at": "2026-10-11T08:00:00Z"
+  }
+}
+```
+
+`updated_at` is the committed Ticket activity timestamp, not a client timestamp. Payloads
+contain no subject, message content, sender, customer, or business details. Before each
+delivery, revalidate access-token expiration and current database role/business: Admin/Agent
+receive only their business's events; Customers receive only their own tickets' events.
+Invalid/expired/deleted users are disconnected with `1008`.
+
+Delivery is single-process and best-effort. Clients refetch authorized `GET /tickets` data on
+events and every successful reconnect; pagination/search/status remain REST responsibilities.
+Existing ticket-room message and status envelopes are unchanged.
+
 ---
 
 ## 11. WebSocket Event Schemas

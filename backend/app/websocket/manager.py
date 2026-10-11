@@ -1,7 +1,8 @@
-"""Single-process ticket-room WebSocket connection manager."""
+"""Single-process ticket-room and user-scoped subscription manager."""
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import WebSocket
@@ -12,6 +13,48 @@ class ConnectionManager:
         self._rooms: dict[uuid.UUID, set[WebSocket]] = {}
         self._room_locks: dict[uuid.UUID, asyncio.Lock] = {}
         self._state_lock = asyncio.Lock()
+        self._subscriptions: dict[WebSocket, str] = {}
+        self._subscription_lock = asyncio.Lock()
+
+    async def subscribe(self, websocket: WebSocket, token: str) -> None:
+        await websocket.accept()
+        async with self._state_lock:
+            self._subscriptions[websocket] = token
+
+    async def unsubscribe(self, websocket: WebSocket) -> None:
+        async with self._state_lock:
+            self._subscriptions.pop(websocket, None)
+
+    async def broadcast_list(
+        self,
+        event: dict[str, Any],
+        authorize: Callable[
+            [dict[WebSocket, str]],
+            Awaitable[tuple[set[WebSocket], set[WebSocket]]],
+        ],
+    ) -> None:
+        # Serialize list deliveries, with one batched authorization check per event.
+        async with self._subscription_lock:
+            async with self._state_lock:
+                subscriptions = self._subscriptions.copy()
+            if not subscriptions:
+                return
+            recipients, invalid = await authorize(subscriptions)
+            for websocket in invalid:
+                await self.unsubscribe(websocket)
+                try:
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass
+            for websocket in recipients:
+                try:
+                    await asyncio.wait_for(websocket.send_json(event), timeout=5)
+                except Exception:
+                    await self.unsubscribe(websocket)
+                    try:
+                        await websocket.close(code=1011)
+                    except Exception:
+                        pass
 
     async def connect(self, ticket_id: uuid.UUID, websocket: WebSocket) -> None:
         await websocket.accept()

@@ -347,7 +347,8 @@ an endless reconnect loop.
 
 - `message.created`: validate event shape, merge by UUID, sort by `(created_at, id)`, update latest
   activity where known, and clear the matching local pending-send state.
-- `ticket.status_changed`: update Ticket detail/list cache and recompute action/composer availability.
+- `ticket.status_changed`: update Ticket detail cache and recompute action/composer availability.
+  B4 list subscriptions refetch paginated list data instead of mutating list arrays.
 - `error`: show a safe inline message. `TICKET_CLOSED` disables the composer and refetches detail;
   authorization/auth failures stop sending and invoke the relevant auth/error path.
 - Unknown event types are ignored safely and may be logged only in development without token or
@@ -355,6 +356,19 @@ an endless reconnect loop.
 
 The UI never equates a successful socket `send()` call with persistence. Only server-confirmed data
 is displayed as sent.
+
+### B4 Ticket-list activity
+
+One authenticated session owns one `/ws/tickets` subscription, separate from a mounted detail
+view's chat socket. Coalesce activity into ticket-list query invalidation over 250 ms; preserve
+current page, search, and status. Never filter protected events on the frontend for security.
+Show only a small generic inline activity notice on `/tickets`, cleared after four seconds.
+Use existing Alert styling and polite status announcements; do not add a notifications center
+or unread badges. Show a subtle reconnect/offline message without blocking REST usage.
+
+Ignore duplicate event type/Ticket ID/timestamp combinations, refetch on reconnect, replace
+the socket when the in-memory access token changes, and close it on logout or provider unmount.
+Keep bounded reconnect backoff and refresh before token expiry; never expose token-bearing URLs.
 
 ### Connection language
 
@@ -435,6 +449,9 @@ filled with fake product functionality.
 
 The separately approved B3 extension adds Ticket subject search and server-side pagination to
 the existing list, without changing the original M6 page design.
+
+The separately approved B4 extension adds live list invalidation and a subtle generic activity
+notice, not a Notifications Center, unread badges, or a page redesign.
 
 ## 12. Design Review Checklist
 

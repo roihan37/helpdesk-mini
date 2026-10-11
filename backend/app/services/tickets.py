@@ -27,6 +27,7 @@ NORMAL_STATUS_TRANSITIONS = {
 class TicketUpdateResult:
     ticket: Ticket
     status_changed: bool
+    assignment_changed: bool
 
 
 @dataclass(frozen=True)
@@ -187,7 +188,11 @@ def update_ticket_with_result(
         db.commit()
         db.refresh(ticket)
         _load_ticket_identities(ticket)
-        return TicketUpdateResult(ticket=ticket, status_changed=status_changes)
+        return TicketUpdateResult(
+            ticket=ticket,
+            status_changed=status_changes,
+            assignment_changed=assignment_changes,
+        )
     except Exception:
         db.rollback()
         raise

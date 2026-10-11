@@ -118,3 +118,8 @@ export type WebSocketEvent =
       message: string
     }
   };
+
+export interface TicketListEvent {
+  type: "ticket.created" | "ticket.message_created" | "ticket.status_changed" | "ticket.assignment_changed";
+  data: { ticket_id: string; updated_at: string };
+}

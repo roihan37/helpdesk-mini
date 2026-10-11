@@ -171,6 +171,19 @@ sanitized `error` events.
 These endpoints require access-token authentication. Ticket queries are tenant-scoped, Customer
 access is ownership-scoped, and inaccessible cross-tenant or cross-Customer ticket IDs return 404.
 
+### Live ticket-list activity (B4)
+
+The frontend maintains one authenticated `WS /ws/tickets?token=<access-token>` subscription per
+session, separate from ticket-detail chat. Committed creation, messages, status, and assignment
+changes emit minimal activity events. Admin/Agent receive only own-business activity; Customers
+receive only their own tickets. JWT expiration and current database membership/role are checked
+before delivery. Existing Origin restrictions apply.
+
+Events invalidate the existing ticket-list queries with 250 ms coalescing, preserving page,
+search, status filters, and database sorting. A short generic inline notice avoids exposing
+message content. Reconnect refetches missed activity; token replacement and logout clean up the
+subscription. No unread badges or notification center are added.
+
 For Postman refresh testing, use the cookie jar populated by `/auth/login`; `/auth/refresh` does not accept a refresh token in the JSON body.
 
 ### Login rate limiting
@@ -289,6 +302,42 @@ E2E framework exists; the mandatory matrix was run through actual browser sessio
 inferred from unit tests or build success. Exact evidence is in the completed M6 execution plan.
 The production build intentionally uses Next.js's webpack builder.
 
+### B4 verification evidence
+
+Executed against a newly created, disposable `helpdesk_b4_test` PostgreSQL database, not demo
+data. The Compose test runner applies Alembic migrations, runs pytest, and checks schema drift:
+
+```bash
+docker compose --profile test exec -T test-db createdb -U helpdesk_test helpdesk_b4_test
+docker compose --profile test run --build --rm \
+  -e DATABASE_URL=postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_b4_test \
+  -e TEST_DATABASE_URL=postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_b4_test \
+  -e M1_TEST_DATABASE_URL=postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_b4_test tests
+```
+
+Result: **214 backend tests PASS**, migrations/schema-drift check PASS. `local-test-only` is the
+public disposable Compose test password, not a production credential. The first run against an
+existing test database had 212 PASS / 2 FAIL because seed tests require an empty database; prior
+browser fixtures were preserved, and the fresh database rerun passed. For another full run,
+create a new explicitly disposable `*_test` database rather than clearing existing data.
+
+From `backend/`, `.venv/bin/ruff check app tests` and `.venv/bin/mypy app` passed. From
+`frontend/`, `npm test` passed 17 tests, and `npm run typecheck`, `npm run lint`, and
+`npm run build` passed. Tests cover committed activity, minimal payloads, tenant/Customer
+isolation, invalid/expired/refresh-token rejection, failed-commit suppression, concurrent list
+delivery, cleanup, reconnect, token replacement, deduplication, and B3 search/pagination.
+Final review reproduced a stale-response race when activity arrived during an existing list
+request (16 PASS / 1 FAIL). Invalidation now supersedes that pre-event request; the added
+regression and the full frontend rerun passed (17 PASS / 0 FAIL).
+
+A real Chrome session against FastAPI/PostgreSQL verified that an external committed status
+and assignment change updates `/tickets` without refresh while preserving active search/status
+filters. A new automated two-independent-browser B4 scenario was **NOT RUN**; real two-client
+FastAPI WebSocket integration is covered by pytest, not claimed as browser E2E. To verify this
+manually, open separate Customer/Agent browser profiles, keep the Agent on `/tickets`, create a
+Customer ticket and send a message, then verify list activity/order and status/assignment changes
+without reload. Repeat with Orbit and another Customer to confirm no unauthorized notices.
+
 ## Demo Checklist
 
 Use two isolated browser profiles and keep the backend at one worker. The target recording is 3-5
@@ -335,11 +384,12 @@ text with a URL until the recording exists and access has been tested.
   see the login rate-limiting section for proxy, shared-IP, and capacity limitations.
 - Refresh-cookie headers and CORS behavior are covered by TestClient, but persistence and
   SameSite/Secure behavior have not been manually verified in a real browser deployment.
-- M5 uses an in-memory connection manager and must run with one backend worker. Live delivery does
-  not span processes or instances, and a crash after database commit but before broadcast can
-  delay visibility until message history is reloaded.
+- M5 chat and B4 list activity use an in-memory connection manager and require one backend worker.
+  Live delivery does not span processes/instances and has no durable outbox. A crash between
+  commit and broadcast can delay visibility until history is reloaded or the list reconnects/refetches.
 - Idle WebSocket connections are not continuously reauthenticated. Authentication, current User,
-  role, tenant/ownership access, and Ticket status are revalidated on each message send.
+  role, tenant/ownership access, and Ticket status are revalidated on each message send. B4 also
+  revalidates token expiration and current User role/business/ownership before each list delivery.
 - Same-business Customer/assignee integrity cannot be fully expressed by the existing foreign keys
   and remains an application-service invariant. Future Ticket writers must follow the same row-lock
   discipline used by M4 for competing state changes.

@@ -994,6 +994,11 @@ If authentication is no longer valid, close the connection.
 
 Do not allow an expired connection to continue performing protected operations.
 
+B4 ticket-list subscriptions also revalidate token expiration and current database User role,
+business, and Customer ownership before each event delivery. Deleted/invalid users are closed
+with `1008`. Idle sockets are not continuously checked; they receive no protected event until
+that delivery check passes. Frontend proactive refresh does not replace server authorization.
+
 ### 11.7 WebSocket Origin Validation
 
 **RECOMMENDED**
@@ -1016,7 +1021,7 @@ Do not require ordinary REST JSON error responses during rejected WebSocket hand
 
 ### 11.9 WebSocket Broadcasting
 
-Only broadcast events to the authorized ticket room.
+Only broadcast chat messages and ticket-room status events to the authorized ticket room.
 
 Example:
 
@@ -1031,6 +1036,13 @@ Ticket B room
 ```
 
 A message from Ticket A must never be broadcast to Ticket B.
+
+The separately approved B4 ticket-list stream broadcasts only type, Ticket ID, and committed
+activity timestamp. It contains no chat content or ticket details. Authorize recipients using
+the current database User and trusted committed Ticket scope, never client-provided scope:
+Admin/Agent must share the Ticket business; Customers must additionally own the Ticket.
+Check access-token expiration on every delivery. Apply the existing Origin validation and
+query-string-token redaction rules to this endpoint as well.
 
 ### 11.10 WebSocket Token Exposure
 
