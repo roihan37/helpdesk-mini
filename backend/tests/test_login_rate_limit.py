@@ -125,6 +125,24 @@ def test_five_failures_return_401_then_429_without_authenticating(
     assert authenticate.call_count == 5
 
 
+def test_valid_credentials_remain_blocked_until_window_expires(
+    client: TestClient, authenticate: Mock, clock: Clock
+) -> None:
+    for _ in range(5):
+        assert client.post("/auth/login", json=PAYLOAD).status_code == 401
+    authenticate.side_effect = None
+    authenticate.return_value = TokenPair("access.jwt", "refresh.jwt")
+    response = client.post("/auth/login", json=PAYLOAD)
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "900"
+    assert authenticate.call_count == 5
+    clock.now += 900
+    response = client.post("/auth/login", json=PAYLOAD)
+    assert response.status_code == 200
+    assert "retry-after" not in response.headers
+    assert authenticate.call_count == 6
+
+
 def test_case_and_whitespace_share_the_same_failure_limit(client: TestClient) -> None:
     for email in (EMAIL, EMAIL.upper(), f"  {EMAIL}  ", EMAIL, EMAIL.upper()):
         assert (

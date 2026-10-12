@@ -424,9 +424,18 @@ For genuinely cross-site cookie usage, `SameSite=None` requires HTTPS, `Secure=t
 API clients such as Postman may test refresh by retaining the cookie set at login in a cookie jar. JSON-body refresh tokens are not part of the selected contract.
 
 Logout expires this cookie with the same attributes, including `Path=/auth/refresh`. The frontend
-then removes its memory-only access token. Logout is idempotent and does not require a valid token,
+immediately removes its memory-only access token and clears its query cache, before waiting for
+the logout request. Logout is idempotent and does not require a valid token,
 but browser requests with an `Origin` header are subject to the same allowed-origin validation as
 refresh.
+
+Account changes advance a frontend session generation. Authenticated responses and refresh
+completions from an earlier generation are rejected, including delayed response-body parsing.
+Login/logout cookie writes are serialized within the tab. Token changes synchronously stop old
+chat/list subscriptions; session changes remount the notification subtree to discard pending UI
+state. These client safeguards do not replace backend authorization or revoke copied JWTs.
+If logout cannot reach the server, local state is cleared but cookie expiration is not guaranteed.
+See `docs/ACCOUNT_SWITCH_VERIFICATION.md` for executed checks and pending browser verification.
 
 ### 6.3 CSRF Protection
 
@@ -1702,6 +1711,13 @@ In-memory WebSocket broadcasts do not work across multiple backend processes.
   clock prevents wall-clock adjustments from changing windows.
 - Expired keys are pruned; state is bounded to 10,000 live keys. At capacity, new keys fail closed
   rather than evicting existing limits.
+
+Login UI reads the CORS-exposed `Retry-After` header (seconds or HTTP date),
+displays the remaining wait, and disables submission until the deadline. Timers are cleaned
+up on unmount; ordinary 401 responses introduce no client delay. Cooldown is memory-only:
+after a reload, the next attempt is evaluated by the backend and any new 429 restores the
+countdown. Missing/invalid headers show the server error without inventing a duration.
+Client state is only a UX aid, never an enforcement mechanism.
 
 Use the ASGI peer IP. The application never reads client-controlled forwarding headers for
 limiting. Docker startup and the documented manual Uvicorn command disable proxy-header

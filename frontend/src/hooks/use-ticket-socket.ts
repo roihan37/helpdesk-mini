@@ -1,6 +1,6 @@
 "use client";
 
-import { getAccessToken, onAccessTokenChanged, refreshAccessToken } from "@/lib/api";
+import { getAccessToken, getAuthEpoch, onAccessTokenChanged, refreshAccessToken } from "@/lib/api";
 import { applyReadReceipts, mergeMessages, sequenceAtMost } from "@/lib/domain";
 import { WS_URL } from "@/lib/env";
 import { queryKeys } from "@/lib/query";
@@ -33,6 +33,7 @@ function parseEvent(raw: string): WebSocketEvent | null {
 export function useTicketSocket(ticketId: string, enabled: boolean, currentUserId: string, canSend = false, messages: Message[] = []) {
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
+  const socketEpoch = useRef<number | null>(null);
   const retryRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingBody = useRef<string | null>(null);
@@ -64,8 +65,6 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
     setTypingUsers([]);
   }, []);
 
-  useEffect(() => onAccessTokenChanged(setAuthToken), []);
-
   useEffect(() => {
     receipts.current.clear();
     refreshedForClose.current = false;
@@ -75,10 +74,10 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
   useEffect(() => {
     // Reapply committed boundaries when a history fetch or a delayed message
     // races a receipt event. This is local cache reconciliation, not polling.
-    if (!getAccessToken()) return;
+    if (!authToken || getAccessToken() !== authToken) return;
     const updated = applyReadReceipts(messages, receipts.current.values(), currentUserId);
     if (updated !== messages) queryClient.setQueryData(queryKeys.messages(ticketId), updated);
-  }, [messages, currentUserId, queryClient, ticketId]);
+  }, [authToken, messages, currentUserId, queryClient, ticketId]);
 
   useEffect(() => {
     if (!canSend) stopTyping();
@@ -98,11 +97,28 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
 
   useEffect(() => {
     let active = true;
+    const epoch = getAuthEpoch();
     const receiptState = receipts.current;
+    // Stop synchronously on token/session changes, before React effect cleanup.
+    const unsubscribeToken = onAccessTokenChanged((token) => {
+      active = false;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      stopTyping();
+      clearTyping();
+      receiptState.clear();
+      const socket = socketRef.current;
+      socketRef.current = null;
+      socketEpoch.current = null;
+      if (socket) {
+        socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+        socket.close(1000);
+      }
+      setAuthToken(token);
+    });
     queueMicrotask(() => { if (active) setSending(false); });
     pendingBody.current = null;
     async function connect() {
-      if (!enabled || !active) return;
+      if (!enabled || !active || getAuthEpoch() !== epoch || getAccessToken() !== authToken) return;
       const token = getAccessToken();
       if (!token || !currentUserId) {
         setConnection("unauthorized");
@@ -111,8 +127,9 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
       setConnection(retryRef.current ? "reconnecting" : "connecting");
       const socket = new WebSocket(`${WS_URL}/ws/tickets/${encodeURIComponent(ticketId)}?token=${encodeURIComponent(token)}`);
       socketRef.current = socket;
+      socketEpoch.current = epoch;
       socket.onopen = () => {
-        if (!active) {
+        if (!active || socketRef.current !== socket || getAuthEpoch() !== epoch || getAccessToken() !== token) {
           socket.close();
           return;
         }
@@ -126,7 +143,7 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
         ]);
       };
       socket.onmessage = (messageEvent) => {
-        if (!active || socketRef.current !== socket || getAccessToken() !== token) return;
+        if (!active || socketRef.current !== socket || getAuthEpoch() !== epoch || getAccessToken() !== token) return;
         const event = parseEvent(String(messageEvent.data));
         if (!event) return;
         if (event.type === "message.created" && event.data.ticket_id === ticketId) {
@@ -187,7 +204,7 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
         }
       };
       socket.onclose = (closeEvent) => {
-        if (!active || socketRef.current !== socket) return;
+        if (!active || socketRef.current !== socket || getAuthEpoch() !== epoch || getAccessToken() !== token) return;
         stopTyping();
         clearTyping();
         if (socketRef.current === socket) socketRef.current = null;
@@ -224,17 +241,19 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
     if (enabled) void connect();
     return () => {
       active = false;
+      unsubscribeToken();
       if (timerRef.current) clearTimeout(timerRef.current);
       stopTyping();
       clearTyping();
       if (!getAccessToken()) receiptState.clear();
       socketRef.current?.close(1000);
       socketRef.current = null;
+      socketEpoch.current = null;
     };
   }, [authToken, clearTyping, connectKey, currentUserId, enabled, queryClient, stopTyping, ticketId]);
 
   function typing(hasText: boolean) {
-    if (!hasText || !canSend || !getAccessToken() || document.visibilityState !== "visible" ||
+    if (!hasText || !canSend || !authToken || getAccessToken() !== authToken || getAuthEpoch() !== socketEpoch.current || document.visibilityState !== "visible" ||
       socketRef.current?.readyState !== WebSocket.OPEN || sending) {
       stopTyping();
       return;
@@ -251,7 +270,7 @@ export function useTicketSocket(ticketId: string, enabled: boolean, currentUserI
 
   function send(body: string) {
     const clean = body.trim();
-    if (!canSend || !getAccessToken() || !clean || clean.length > 5000 || socketRef.current?.readyState !== WebSocket.OPEN || sending) return false;
+    if (!canSend || !authToken || getAccessToken() !== authToken || getAuthEpoch() !== socketEpoch.current || !clean || clean.length > 5000 || socketRef.current?.readyState !== WebSocket.OPEN || sending) return false;
     stopTyping();
     pendingBody.current = clean;
     setSending(true);

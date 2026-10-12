@@ -21,7 +21,7 @@ class Socket implements ListSocket {
   disconnect(code = 1006) { this.onclose?.({ code } as CloseEvent); }
 }
 
-function fixture(initialToken = "access-one") {
+function fixture(initialToken = "access-one", pending: { refresh?: () => Promise<string>; invalidate?: () => Promise<void> } = {}) {
   let clock = 0;
   let token: string | null = initialToken;
   let listener: ((token: string | null) => void) | null = null;
@@ -36,6 +36,7 @@ function fixture(initialToken = "access-one") {
     subscribeToken: (next) => { listener = next; return () => { listener = null; }; },
     refreshToken: async () => {
       refreshes++;
+      if (pending.refresh) return pending.refresh();
       token = `refreshed-${refreshes}`;
       listener?.(token);
       return token;
@@ -47,7 +48,7 @@ function fixture(initialToken = "access-one") {
       return () => { timers.delete(timer); };
     },
     now: () => clock,
-    invalidate: async () => { invalidations++; },
+    invalidate: async () => { invalidations++; await pending.invalidate?.(); },
     notify: () => { notifications++; },
     stateChanged: (value) => { states.push(value); }
   });
@@ -165,6 +166,70 @@ test("logout and unmount cancel sockets, retries and pending activity", async ()
     assert.equal(f.timers.size, 0);
     f.stop();
   }
+});
+
+test("late Northstar socket callbacks cannot notify after logout while Orbit remains live", async () => {
+  const northstar = fixture("northstar");
+  const old = northstar.sockets[0];
+  old.open();
+  await flush();
+  old.receive(event);
+  const staleMessage = old.onmessage;
+  const staleClose = old.onclose;
+  const staleOpen = old.onopen;
+  northstar.changeToken(null);
+  const orbit = fixture("orbit");
+  orbit.sockets[0].open();
+  await flush();
+  staleMessage?.({ data: JSON.stringify({ ...event, type: "ticket.message_created" }) } as MessageEvent);
+  staleClose?.({ code: 1008 } as CloseEvent);
+  staleOpen?.(new Event("open"));
+  northstar.advance(60000);
+  await flush();
+  assert.equal(northstar.notifications, 1);
+  assert.equal(northstar.invalidations, 1);
+  assert.equal(northstar.refreshes, 0);
+  assert.equal(northstar.sockets.length, 1);
+  assert.equal(old.closed, true);
+  assert.equal(orbit.notifications, 0);
+  orbit.sockets[0].receive(event);
+  orbit.advance(250);
+  await flush();
+  assert.equal(orbit.notifications, 1);
+  assert.equal(orbit.invalidations, 2);
+  orbit.stop();
+});
+
+test("a refresh finishing after logout cannot revive the old subscription", async () => {
+  let resolveRefresh!: (token: string) => void;
+  const refresh = new Promise<string>((resolve) => { resolveRefresh = resolve; });
+  const old = fixture("northstar", { refresh: () => refresh });
+  old.sockets[0].disconnect(1008);
+  old.changeToken(null);
+  const current = fixture("orbit");
+  resolveRefresh("obsolete-token");
+  await flush();
+  old.advance(60000);
+  assert.equal(old.sockets.length, 1);
+  assert.equal(old.timers.size, 0);
+  assert.equal(current.sockets[0].closed, false);
+  current.stop();
+});
+
+test("in-flight invalidation completion cannot schedule more old-session work", async () => {
+  let finish!: () => void;
+  const invalidation = new Promise<void>((resolve) => { finish = resolve; });
+  const f = fixture("northstar", { invalidate: () => invalidation });
+  f.sockets[0].open();
+  f.sockets[0].receive(event);
+  f.advance(250);
+  f.changeToken(null);
+  finish();
+  await flush();
+  f.advance(60000);
+  assert.equal(f.invalidations, 1);
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.sockets.length, 1);
 });
 
 test("list invalidation preserves paginated envelopes, search and status query keys", async () => {

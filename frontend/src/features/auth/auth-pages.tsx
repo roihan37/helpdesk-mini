@@ -4,12 +4,13 @@ import { Alert, Button, Field, Input } from "@/components/ui";
 import { Brand, Icon } from "@/components/icon";
 import { useAuth } from "@/features/auth/auth-provider";
 import { PublicOnly } from "@/features/auth/guards";
-import { apiRequest, friendlyError, validationErrors } from "@/lib/api";
+import { ApiError, apiRequest, friendlyError, validationErrors } from "@/lib/api";
+import { loginSubmissionDisabled, remainingSeconds, watchLoginCooldown } from "@/lib/login-cooldown";
 import { safeReturnPath } from "@/lib/domain";
 import type { RegistrationResponse } from "@/types/api";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 function PasswordInput({ id, value, onChange, autoComplete, error, help, disabled }: {
   id: string;
@@ -57,17 +58,28 @@ export function LoginPage() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [retryAt, setRetryAt] = useState(0);
+  const [waitSeconds, setWaitSeconds] = useState(0);
+  useEffect(() => {
+    if (!retryAt) return;
+    return watchLoginCooldown(retryAt, setWaitSeconds);
+  }, [retryAt]);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (pending) return;
+    if (loginSubmissionDisabled(pending, remainingSeconds(retryAt))) return;
     setPending(true);
     setError("");
     try {
       const user = await auth.signIn(email.trim().toLowerCase(), password);
       router.replace(safeReturnPath(searchParams.get("next"), user.role));
     } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 429) {
+        const deadline = reason.retryAt ?? 0;
+        setRetryAt(deadline);
+        setWaitSeconds(remainingSeconds(deadline));
+      }
       setError(friendlyError(reason, "Sign in failed. Check your details and try again."));
     } finally {
       setPending(false);
@@ -85,7 +97,9 @@ export function LoginPage() {
           {searchParams.get("registered") === "1"
             ? <Alert tone="success">Business created. Sign in with your administrator account.</Alert>
             : null}
-          {error ? <Alert tone="error">{error}</Alert> : null}
+          {waitSeconds > 0
+            ? <Alert tone="error">Too many sign-in attempts. Please wait {waitSeconds} seconds before trying again.</Alert>
+            : error ? <Alert tone="error">{error}</Alert> : null}
           <form className="form-stack" onSubmit={submit}>
             <Field label="Email address" name="email">
               <Input
@@ -107,8 +121,8 @@ export function LoginPage() {
               autoComplete="current-password"
               disabled={pending}
             />
-            <Button type="submit" disabled={pending}>
-              {pending ? "Signing in…" : "Sign in"}
+            <Button type="submit" disabled={loginSubmissionDisabled(pending, waitSeconds)}>
+              {pending ? "Signing in…" : waitSeconds > 0 ? `Try again in ${waitSeconds}s` : "Sign in"}
               <Icon name="arrowRight" />
             </Button>
           </form>

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/lib/domain.test.ts src/features/tickets/ticket-list-query.test.ts src/features/tickets/ticket-list-live-socket.test.ts src/features/tickets/chat-scroll.test.ts"
+    "test": "node --experimental-transform-types --test src/lib/domain.test.ts src/lib/api.test.ts src/lib/login-cooldown.test.ts src/features/tickets/ticket-list-query.test.ts src/features/tickets/ticket-list-live-socket.test.ts src/features/tickets/chat-scroll.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",
