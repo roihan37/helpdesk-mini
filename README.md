@@ -1,60 +1,51 @@
 # HelpDesk Mini
 
-HelpDesk Mini is a multi-tenant support-ticket application being built for the SVO Connect Junior Developer technical assessment.
+Aplikasi helpdesk multi-tenant untuk technical assessment SVO Connect. Customer membuat tiket dan berkomunikasi dengan Agent secara real-time; setiap bisnis memiliki pengguna dan data yang terisolasi.
 
-## Implementation Status
+## 1. Overview
 
-M0 provides the project foundation, M1 provides the PostgreSQL domain models and initial Alembic
-migration, M2 provides verified JWT authentication plus tenant-scoped Admin user management, and
-M3 provides verified reusable role and ticket-resource authorization policies. M4 provides
-verified Ticket REST workflows for creation, scoped listing/detail, assignment, and status
-lifecycle management. M5 provides verified persistent message history and authenticated,
-ticket-scoped WebSocket chat with post-commit message and status events. M6 provides the verified
-responsive Next.js authentication, Ticket, real-time chat, and Admin Team interfaces, including
-real-browser role, tenant-isolation, reconnect, and two-client WebSocket workflows.
-M7 adds a safe, repeatable demo seed and reviewer-facing setup/demo documentation. The final M7
-audit reran the backend, PostgreSQL, frontend, migration, seed, browser, security, and repository
-quality gates. The milestone remains active pending final-revision setup verification, formal
-assistive-technology/contrast evidence, and the 3-5 minute demo recording.
+**Stack:** Next.js App Router, TypeScript, Tailwind CSS, TanStack Query, FastAPI, PostgreSQL, SQLAlchemy, Alembic, dan native WebSocket.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [security](docs/SECURITY.md), and the [API contract](docs/API_CONTRACT.md) for the planned application behavior.
+- JWT access/refresh, registrasi bisnis beserta Admin, serta manajemen Agent/Customer oleh Admin.
+- RBAC dan isolasi bisnis/Customer di backend; Admin membaca chat, Agent dan Customer dapat mengirim pesan.
+- Tiket: pesan pertama, prioritas, filter status, assignment, dan lifecycle `open → in_progress → resolved → closed`; Customer dapat membuka kembali tiket `resolved` miliknya.
+- Chat real-time dengan riwayat PostgreSQL dan pembaruan status tanpa refresh.
+- Bonus yang diimplementasikan: Docker Compose, login rate limiting dengan countdown 429, pagination/search, notifikasi daftar tiket, unread badges, typing indicator, read receipts, dan lampiran gambar private (local/S3). Logout juga tersedia.
 
-## One-command Docker demo (recommended for reviewers)
+Implementasi tersedia tidak berarti semua skenario deployment telah diverifikasi. M0–M6 tercatat selesai; M7 masih **PENDING VERIFICATION**. Lihat [rencana dan bukti M7](exec-plans/active/M7-final-verification.md) serta [verifikasi lampiran](docs/ATTACHMENT_VERIFICATION.md).
 
-Prerequisites: Docker Engine with the Docker Compose plugin, or Docker Desktop, running with
-ports 3000, 8000, and 5433 free. From the repository root:
+## 2. Live Demo
+
+[Buka HelpDesk Mini di Railway](https://helpdesk-frontend-production-0ce9.up.railway.app).
+
+Target deployment adalah frontend, backend, dan PostgreSQL di Railway. Konfigurasi layanan aktual, ketersediaan demo, kredensial login Railway, dan penggunaan AWS S3 belum diverifikasi dalam pembaruan dokumentasi ini. Dukungan S3 tersedia di kode, tetapi bukan bukti bahwa deployment sedang menggunakannya. Password Docker di bawah tidak diasumsikan berlaku di Railway.
+
+## 3. Quick Start — Docker Compose
+
+Prasyarat: Git, Docker Desktop atau Docker Engine dengan Compose v2 yang aktif; port lokal `3000`, `8000`, dan `5433` tersedia. Ganti `<repository-url>` dengan URL repository ini.
 
 ```bash
+git clone <repository-url>
+cd helpdesk-mini
 docker compose up --build -d
 docker compose ps
 ```
 
-No `.env` files, local Python/Node/PostgreSQL installation, or password prompts are required.
-The first build downloads dependencies and can take several minutes. PostgreSQL becomes healthy,
-the backend runs Alembic migrations and the existing demo seed, then the production Next.js
-frontend starts. Tests do **not** run during normal startup.
+Tidak perlu membuat `.env`, memasang Python/Node/PostgreSQL lokal, atau memasukkan password. Compose menunggu PostgreSQL sehat, menjalankan Alembic, menginisialisasi seed, lalu memulai FastAPI dan production build Next.js. Build pertama memerlukan akses internet. Target setup ±15 menit; durasi fresh clone versi final **belum diukur**.
 
-- Login: **http://localhost:3000/login**
-- Backend: http://localhost:8000/health; Swagger: http://localhost:8000/docs
-- Shared password for all eight accounts below: **`HelpdeskDemo2026!`**
-- Fresh demo: 2 businesses, 8 users, 5 tickets, and 7 messages.
+| Layanan | URL |
+|---|---|
+| Frontend/login | http://localhost:3000/login |
+| Backend health | http://localhost:8000/health |
+| Swagger/OpenAPI | http://localhost:8000/docs |
 
-Use `localhost` consistently in the browser. The frontend uses `http://localhost:8000` for REST
-and `ws://localhost:8000` for WebSocket connections; these are browser URLs, not Docker service
-names. Explicit credentialed CORS and the HttpOnly, SameSite=Lax refresh cookie remain enabled.
-The backend runs one worker because ticket-room broadcasts use an in-memory connection manager.
-
-Run the existing backend suite, migrations, and schema-drift check explicitly:
+Gunakan `localhost` secara konsisten. Browser mengakses REST di `http://localhost:8000` dan WebSocket di `ws://localhost:8000`, bukan hostname internal Docker `backend`.
 
 ```bash
+# Backend tests + migrasi + pemeriksaan schema; tidak berjalan saat startup normal
 docker compose --profile test run --build --rm tests
-```
 
-The test profile uses a separate `test-db` service and a disposable `helpdesk_compose_test`
-database in tmpfs, with all test database URLs pointing there. It does not connect to or seed
-the demo database. Migration downgrade tests operate only on that disposable database.
-
-```bash
+# Diagnosis, berhenti, jalankan kembali, atau restart
 docker compose logs backend
 docker compose stop
 docker compose up -d
@@ -62,413 +53,135 @@ docker compose restart
 docker compose down
 ```
 
-`stop`, `restart`, and `down` without `--volumes` preserve demo data. Named volumes
-`demo_postgres_data`, `demo_uploads`, and `demo_backend_state` retain PostgreSQL data, private image uploads, and an automatically generated
-private JWT signing secret. On restart, the complete demo identity manifest is detected and seed
-is skipped: edited users, passwords, tickets, and messages are not reset or duplicated. An
-incomplete/nonempty database without the manifest is rejected rather than modified automatically.
-Do not use `down --volumes` if you want to keep data. The previous Compose `postgres_data` volume
-is not reused or deleted; this demo uses its own database and volumes.
+Test profile memakai `test-db` terpisah di tmpfs, bukan database demo. Volume PostgreSQL, gambar lokal, dan JWT secret dipertahankan oleh `stop`, `restart`, serta `down` tanpa `--volumes`. **Jangan gunakan `down --volumes` untuk data yang ingin disimpan.**
 
-**Local demo only:** these public account/database credentials and HTTP cookie settings must
-never be used in production. All published ports are bound to loopback. Automatic initialization
-accepts only the fixed Compose `db:5432/helpdesk_mini_demo` target and demo database role; external
-or production targets are rejected. `.env.compose` is no longer required or consumed. For other
-environments, use the manual setup below with private credentials and an appropriate secure
-configuration; do not use the demo entrypoint.
+Seed awal menyediakan 2 bisnis, 8 pengguna, 5 tiket, dan 7 pesan. Restart melewati seed jika identitas demo lengkap: perubahan pengguna/tiket/pesan tidak direset. Database berisi data tanpa identitas demo lengkap ditolak oleh startup otomatis. JWT secret lokal dibuat secara acak dan disimpan dalam volume.
 
-## Manual setup prerequisites
+**Khusus demo lokal:** kredensial publik dan cookie HTTP Compose bukan konfigurasi produksi. Port dibatasi ke loopback; entrypoint demo hanya menerima target database Compose yang telah ditentukan. `.env.compose` tidak diperlukan.
 
-The M0 checks were run with:
+## 4. Manual Setup
 
-- Node.js 24.18.0 and npm 11.16.0.
-- Python 3.12.12 managed by `uv`.
-- PostgreSQL 17 for the connectivity and Alembic smoke checks.
-
-Python 3.11 or later is supported. A PostgreSQL database and role matching `DATABASE_URL` must exist before running the database checks.
-
-From a fresh local PostgreSQL installation, create separate development and disposable test
-databases. The commands prompt for the role password and do not put it in shell history:
+Prasyarat: Python 3.12 (sesuai Docker; proyek mendukung 3.11+), `uv`, Node.js 24/npm, dan PostgreSQL 17 aktif. Jalankan perintah PostgreSQL sebagai role lokal yang memiliki izin membuat role/database:
 
 ```bash
 createuser --pwprompt helpdesk_user
 createdb --owner=helpdesk_user helpdesk_mini
-createdb --owner=helpdesk_user helpdesk_m7_test
 ```
 
-If the role or databases already exist, reuse them only after confirming their purpose. Commands
-that downgrade migrations or run integration tests must target the disposable `*_test` database,
-never development or valuable data.
-
-## Environment Configuration
-
-From the repository root, copy the tracked template into the two ignored local files:
+Dari root repository, salin template, kemudian **edit `backend/.env`**: isi `DATABASE_URL` dengan role/password lokal dan ganti placeholder `JWT_SECRET` dengan nilai acak minimal 32 karakter. Contoh pembangkit secret: `openssl rand -hex 32`; jangan commit hasilnya. Salin hanya dua variabel `NEXT_PUBLIC_*` dari template ke `frontend/.env.local`.
 
 ```bash
 cp .env.example backend/.env
-cp .env.example frontend/.env.local
-```
-
-Replace `USER`, `PASSWORD`, and `JWT_SECRET` in `backend/.env`. The application has no fallback
-JWT secret. Set `REFRESH_COOKIE_SECURE=false` only for local HTTP development and `true` when
-serving over HTTPS. The backend ignores the frontend-only variables and Next.js exposes only the
-two `NEXT_PUBLIC_*` values from `frontend/.env.local`.
-
-`CORS_ORIGINS` is a comma-separated list of explicit origins, for example:
-
-```dotenv
-CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-```
-
-Wildcard origins are not supported because the browser authentication design uses credentials. Access tokens are returned for in-memory frontend use. Login also places the refresh token in an HttpOnly cookie with `SameSite=Lax`, `Path=/auth/refresh`, and environment-controlled `Secure`. Browser refresh and logout requests with an `Origin` header are checked against `CORS_ORIGINS`. Logout expires that cookie and the frontend clears its in-memory access token; stateless JWT copies are not revoked server-side.
-
-## Backend Setup
-
-Run from `backend/`:
-
-```bash
-uv sync --all-groups
-uv run python -m app.db.check
+cd backend
+uv sync --frozen
 uv run alembic upgrade head
-uv run alembic heads
-DEMO_SEED_PASSWORD='<local-demo-only-password>' uv run python -m app.scripts.seed_demo --confirm-demo-data
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers
 ```
 
-The seed requires explicit acknowledgement, a password of at least 12 characters, and a named
-PostgreSQL target. It refuses obvious production/system database names, never truncates tables,
-and aborts on incompatible existing demo keys. Rerunning it with the same password is idempotent;
-it preserves unrelated rows. Inspect `DATABASE_URL` before confirming. Never save real or
-production credentials in Git, environment templates, screenshots, or recordings. The public
-Docker demo password above is deliberately demo-only.
-
-The intentionally public health endpoint is available at `http://127.0.0.1:8000/health` and returns only `{"status":"ok"}`. Swagger UI is available at `http://127.0.0.1:8000/docs`.
-
-M2 endpoints are:
-
-- `POST /auth/register-business`
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `POST /auth/logout`
-- `GET /auth/me`
-- `GET /users`
-- `POST /users`
-
-M4 Ticket endpoints are:
-
-- `GET /tickets` with optional `status` filtering
-- `POST /tickets`
-- `GET /tickets/{id}`
-- `PATCH /tickets/{id}`
-- `GET /tickets/{id}/messages`
-
-M5 WebSocket chat is available at
-`WS /ws/tickets/{id}?token=<access-token>`. Browser connections must send an `Origin` that exactly
-matches `CORS_ORIGINS`. Agent and owning Customer connections may send `message.send`; Admin
-connections are read-only. The server emits `message.created`, `ticket.status_changed`, and
-sanitized `error` events.
-
-These endpoints require access-token authentication. Ticket queries are tenant-scoped, Customer
-access is ownership-scoped, and inaccessible cross-tenant or cross-Customer ticket IDs return 404.
-
-### Live ticket-list activity (B4)
-
-The frontend maintains one authenticated `WS /ws/tickets?token=<access-token>` subscription per
-session, separate from ticket-detail chat. Committed creation, messages, status, and assignment
-changes emit minimal activity events. Admin/Agent receive only own-business activity; Customers
-receive only their own tickets. JWT expiration and current database membership/role are checked
-before delivery. Existing Origin restrictions apply.
-
-Events invalidate the existing ticket-list queries with 250 ms coalescing, preserving page,
-search, status filters, and database sorting. A short generic inline notice avoids exposing
-message content. Reconnect refetches missed activity; token replacement and logout clean up the
-subscription. B4 itself adds no unread badges or notification center.
-
-### Persistent unread badges (B5)
-
-Ticket rows/cards show the current user's count of unread messages from other users. Read
-cursors persist in PostgreSQL; opening a conversation acknowledges only successfully loaded,
-rendered history when its end is visible in an active tab. Fetching history alone does not mark
-it read. A private `ticket.read` event uses the existing list subscription to synchronize that
-user's other sessions, silently; other users' read state is never cleared or broadcast.
-
-Apply Alembic migrations before running the updated application. B5 adds `messages.sequence`
-and `ticket_read_states`; existing messages from other users initially count as unread until
-viewed. This implementation-only phase did **not** apply the migration or run tests/builds.
-See [deferred B5 verification](docs/UNREAD_VERIFICATION.md) for required checks. Real-time
-delivery retains the single-backend-process, best-effort limitation described above.
-
-For Postman refresh testing, use the cookie jar populated by `/auth/login`; `/auth/refresh` does not accept a refresh token in the JSON body.
-
-### Login rate limiting
-
-`POST /auth/login` permits five failed attempts per sliding 15-minute window for each
-normalized (trimmed, lowercase) email + client IP. The first five invalid attempts return the
-same generic 401 for registered and unknown emails; subsequent attempts return the standard
-`AUTH_RATE_LIMITED` 429 error with a positive `Retry-After` in seconds. Successful logins do not
-erase recent failures. An additional per-IP limit counts body-parsed login requests, including
-successful logins and schema-invalid payloads. Malformed JSON is rejected before the limiter;
-this is not a general HTTP denial-of-service control. Allowed browser origins can read
-`Retry-After` through CORS.
-
-| Environment variable | Default |
-|---|---|
-| `LOGIN_MAX_FAILED_ATTEMPTS` | `5` |
-| `LOGIN_FAILED_WINDOW_SECONDS` | `900` |
-| `LOGIN_IP_MAX_REQUESTS` | `30` |
-| `LOGIN_IP_WINDOW_SECONDS` | `60` |
-
-All values must be positive integers. Docker Compose accepts the same overrides. Limits use
-the ASGI peer IP, not client-supplied `X-Forwarded-For`, `X-Real-IP`, or `Forwarded` headers.
-Docker and the startup command above disable proxy-header processing. If deploying behind a
-proxy, enable it only with an explicit, narrowly scoped trusted-proxy allowlist; never trust `*`.
-Without this, users behind the proxy share its IP limit.
-
-The limiter is thread-safe but process-local: run one backend worker, as already required by
-WebSocket rooms. Restarting clears limits; workers/instances do not share them. Shared NAT IPs
-share the request cap, and rotating source IPs are not fully mitigated. State is bounded to
-10,000 live keys; at capacity, new keys fail closed with 429 rather than evicting active limits.
-
-## Demo Data and Accounts
-
-In the Docker demo, all eight accounts use **`HelpdeskDemo2026!`**, supplied only through the demo
-seed configuration and stored as Argon2 hashes. For manual setup, they use the local-only password
-you supply as `DEMO_SEED_PASSWORD`; authentication has no demo password bypass.
-
-| Business | Slug | Role | Email |
-|---|---|---|---|
-| Northstar Support | `demo-northstar` | Admin | `admin@northstar.helpdeskmini.dev` |
-| Northstar Support | `demo-northstar` | Agent | `agent@northstar.helpdeskmini.dev` |
-| Northstar Support | `demo-northstar` | Customer | `customer1@northstar.helpdeskmini.dev` |
-| Northstar Support | `demo-northstar` | Customer | `customer2@northstar.helpdeskmini.dev` |
-| Orbit Services | `demo-orbit` | Admin | `admin@orbit.helpdeskmini.dev` |
-| Orbit Services | `demo-orbit` | Agent | `agent@orbit.helpdeskmini.dev` |
-| Orbit Services | `demo-orbit` | Customer | `customer1@orbit.helpdeskmini.dev` |
-| Orbit Services | `demo-orbit` | Customer | `customer2@orbit.helpdeskmini.dev` |
-
-The manifest also creates five tickets and seven messages: a Northstar open/unassigned chat
-ticket (`30000000-0000-4000-8000-000000000001`), an assigned ticket with history, resolved and
-closed restriction examples, and an Orbit isolation ticket
-(`30000000-0000-4000-8000-000000000005`). These stable IDs are demo data, not credentials.
-
-Backend validation commands:
+Setelah memastikan `DATABASE_URL` menunjuk database **demo lokal**, jalankan seed dari `backend/`:
 
 ```bash
-uv run python -m compileall -q app alembic tests
-uv run ruff check app alembic tests
-uv run ruff format --check app alembic tests
-uv run mypy app tests
-uv run pytest -q tests/test_login_rate_limit.py tests/test_auth.py --tb=short
+DEMO_SEED_PASSWORD='HelpdeskDemo2026!' uv run python -m app.scripts.seed_demo --confirm-demo-data
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
-The full test suite includes destructive migration checks and therefore requires
-`DATABASE_URL`, `TEST_DATABASE_URL`, and `M1_TEST_DATABASE_URL` to point to an explicitly
-disposable PostgreSQL database whose name ends in `_test`. The verified local command below derives
-that URL without printing credentials. Change its database name to the disposable database you
-created if necessary. Never run these tests against a development or production
-database.
+Seed manual bersifat transaksional, menggunakan password hash, dan memeriksa konflik data; bukan perintah reset. Jangan menjalankannya pada Railway atau database berharga. Gunakan password khusus demo; jika memilih nilai lain, akun seed mengikuti nilai tersebut.
+
+Di terminal lain, dari root repository:
 
 ```bash
-UV_CACHE_DIR=/tmp/helpdesk-mini-uv-cache uv run python -c "import os; from sqlalchemy.engine import make_url; from app.core.config import get_settings; url=make_url(get_settings().database_url).set(database='helpdesk_m7_test'); assert url.get_backend_name() == 'postgresql' and (url.database or '').endswith('_test'); test_url=url.render_as_string(hide_password=False); os.environ['DATABASE_URL']=test_url; os.environ['TEST_DATABASE_URL']=test_url; os.environ['M1_TEST_DATABASE_URL']=test_url; get_settings.cache_clear(); import pytest; raise SystemExit(pytest.main(['-q','--tb=short']))"
-```
-
-M5 Phase 4 ran the equivalent guarded setup against the disposable `helpdesk_m5_test` database.
-The focused M5 suite passed 25 tests, the M2-M4 regression selection passed 112 tests, and the full
-backend suite passed 137 tests. Compile/import, Ruff lint/format, strict mypy, single-head Alembic,
-and schema-drift checks also passed. One upstream TestClient deprecation warning remains. Exact
-commands and results are recorded in the completed M5 execution plan.
-
-M6 frontend integration must load REST history before opening one Ticket socket per mounted detail
-view, reconcile `message.created` events by Message ID, and reload history after reconnect. It must
-handle `message.created`, `ticket.status_changed`, and `error`, render message bodies as text, clean
-up sockets during navigation, and disable Admin/closed-Ticket message input without treating UI
-restrictions as authorization controls.
-
-## Frontend Setup
-
-Run from `frontend/`:
-
-```bash
+cd frontend
 npm ci
-npm run dev -- --hostname 127.0.0.1 --port 3000
+npm run dev
 ```
 
-The frontend is available at `http://127.0.0.1:3000/`. It requires the FastAPI backend at the
-`NEXT_PUBLIC_API_URL` configured in `frontend/.env.local`. Required routes are `/login`, `/register`,
-`/tickets`, `/tickets/new`, `/tickets/[id]`, and `/admin/users`.
+Buka `http://localhost:3000/login`. Setup manual tidak menjalankan migrasi/seed secara otomatis.
 
-Frontend validation commands:
+## 5. Environment Variables
+
+Referensi lengkap: [`.env.example`](.env.example). Backend membaca `backend/.env` ketika dijalankan dari `backend/`; Next.js membaca `frontend/.env.local`. Jangan commit kedua file atau memasukkan secret ke variabel `NEXT_PUBLIC_*`.
+
+| Variabel | Penggunaan |
+|---|---|
+| `DATABASE_URL` | PostgreSQL; format `postgresql+psycopg://USER:PASSWORD@HOST:PORT/DB` (URL-encode karakter khusus password). `postgresql://` juga dinormalisasi oleh settings. |
+| `JWT_SECRET`, `JWT_ALGORITHM` | Secret privat minimal 32 karakter; algoritma `HS256`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Umur access/refresh; template 15 menit/7 hari. |
+| `CORS_ORIGINS` | Daftar origin eksplisit dipisahkan koma, **bukan JSON atau wildcard**. |
+| `REFRESH_COOKIE_SECURE`, `REFRESH_COOKIE_SAMESITE` | Lokal HTTP: `false`/`lax`; HTTPS: `true`. Untuk cross-site gunakan `none` dengan HTTPS dan origin eksplisit. Kebijakan third-party cookies browser tetap berlaku. |
+| `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` | URL backend yang dapat diakses browser; HTTPS/WSS untuk deployment. Nilai Next.js tertanam saat build, sehingga perubahan memerlukan rebuild. |
+| `LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_FAILED_WINDOW_SECONDS` | Default 5 kegagalan per email ternormalisasi + IP dalam 900 detik; upaya berikutnya mendapat 429 dan `Retry-After`. |
+| `LOGIN_IP_MAX_REQUESTS`, `LOGIN_IP_WINDOW_SECONDS` | Default 30 request login per IP dalam 60 detik. |
+| `STORAGE_PROVIDER`, `LOCAL_UPLOAD_DIR` | Default `local`; direktori private `.uploads/attachments` pada setup manual. |
+| `AWS_REGION`, `AWS_BUCKET_NAME`, `AWS_S3_PREFIX` | Untuk `STORAGE_PROVIDER=s3`; bucket private dan prefix `helpdesk-mini/attachments/`. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Opsional jika memakai credential chain/IAM role; jangan simpan key asli dalam repository. |
+| `DEMO_SEED_PASSWORD` | Input khusus seed manual; minimal 12 karakter. Compose sudah mengaturnya untuk demo lokal. |
+
+Compose menyuplai konfigurasi sendiri dan memakai volume upload `/var/lib/helpdesk-uploads`. Railway memakai service variables, bukan file `.env` lokal: atur database privat, JWT secret unik, origin frontend yang tepat, cookie HTTPS, serta URL API/WSS sebelum build frontend. Jalankan `alembic upgrade head` sebelum backend; **jangan gunakan `start_demo` sebagai entrypoint produksi**.
+
+S3 memerlukan bucket private, Block Public Access, dan IAM minimum `PutObject`, `GetObject`, `DeleteObject` pada prefix aplikasi. Gambar disajikan melalui endpoint terautentikasi, bukan public S3 URL. Jangan mengubah bucket/provider/root tanpa mempertimbangkan lokasi lampiran lama. Runtime S3 Railway masih perlu diverifikasi secara terpisah.
+
+## 6. Demo Accounts
+
+Password bersama untuk **seed Docker lokal baru**: `HelpdeskDemo2026!`. Masing-masing bisnis memiliki 1 Admin, 1 Agent, dan 2 Customer; password akun yang sudah diubah tidak direset saat restart.
+
+| Bisnis | Nama | Role | Email |
+|---|---|---|---|
+| Northstar Support | Nadia Admin | Admin | admin@northstar.helpdeskmini.dev |
+| Northstar Support | Andi Agent | Agent | agent@northstar.helpdeskmini.dev |
+| Northstar Support | Citra Customer | Customer | customer1@northstar.helpdeskmini.dev |
+| Northstar Support | Dimas Customer | Customer | customer2@northstar.helpdeskmini.dev |
+| Orbit Services | Olivia Admin | Admin | admin@orbit.helpdeskmini.dev |
+| Orbit Services | Raka Agent | Agent | agent@orbit.helpdeskmini.dev |
+| Orbit Services | Sari Customer | Customer | customer1@orbit.helpdeskmini.dev |
+| Orbit Services | Tono Customer | Customer | customer2@orbit.helpdeskmini.dev |
+
+## 7. Skenario Demo (3–5 Menit)
+
+1. Login sebagai Northstar Customer 1; buat tiket beserta pesan pertama.
+2. Di browser/profil terpisah, login sebagai Northstar Agent, buka tiket tersebut, lalu ambil assignment sendiri. Gunakan sesi terpisah agar cookie tidak saling mengganti.
+3. Kirim pesan dua arah tanpa refresh; buka kembali tiket untuk melihat riwayat tersimpan.
+4. Agent mengubah status `open → in_progress → resolved`; Customer melihat perubahan langsung dan dapat reopen `resolved → open`. Tiket `closed` tidak menerima pesan atau reopen.
+5. Login sebagai Orbit Agent di sesi terpisah dan buka ID tiket Northstar yang sama. Request detail harus mendapat `404`, tanpa data tiket/pesan. Periksa tab Network browser.
+6. Tunjukkan search/filter, unread badge/notifikasi, typing/read receipts, dan upload gambar. Admin dapat mendemonstrasikan pembuatan pengguna serta assignment ke Agent lewat sesi sendiri.
+
+## 8. Catatan Teknis dan Limitasi
+
+- **Modular monolith:** router menangani HTTP, service menangani aturan bisnis/otorisasi, SQLAlchemy dan Alembic menangani data. Struktur `backend/` dan `frontend/` tetap dalam satu repository.
+- **Keamanan:** Argon2 untuk password; access JWT disimpan di memori frontend, refresh JWT dalam cookie HttpOnly. Token type, expiry, RBAC, bisnis, dan kepemilikan Customer diperiksa backend, termasuk WebSocket. Refresh/logout memvalidasi origin browser. Logout membersihkan sesi lokal, tetapi salinan JWT stateless tidak langsung dicabut; refresh rotation/revocation belum tersedia.
+- **Integritas:** tiket dan pesan pertama dibuat atomik; pesan disimpan sebelum broadcast. PostgreSQL adalah sumber kebenaran. TanStack Query dan refetch setelah reconnect memulihkan state yang terlewat.
+- **Single process:** connection manager WebSocket dan rate limiter masih in-memory. Gunakan satu backend worker/instance. Restart menghapus state limiter; broadcast best-effort belum memakai durable outbox sehingga commit yang diikuti proses mati dapat kehilangan event langsung.
+- **Proxy:** Compose menonaktifkan proxy headers. Jangan mempercayai `X-Forwarded-For` dari sembarang klien; deployment reverse proxy harus mengatur trusted proxy secara tepat agar limit per-IP tidak mengelompokkan semua pengguna.
+- **Lampiran:** satu gambar JPEG/PNG/WebP per pesan, maksimal 5 MiB; backend memvalidasi dan mengenkode ulang gambar. Storage dan transaksi DB tidak atomik; orphan cleanup, malware scanning, serta quota belum tersedia. Backup database dan object storage bersama-sama.
+- **Verifikasi tersisa:** rehearsal fresh clone versi final yang diukur, video demo, pemeriksaan aksesibilitas lengkap, serta browser/Docker/S3 untuk bonus sesuai catatan verifikasi. Tidak ada klaim production-ready dari build atau mocked tests saja.
+
+Detail: [arsitektur](ARCHITECTURE.md), [requirements](docs/REQUIREMENTS.md), [API contract](docs/API_CONTRACT.md), [security](docs/SECURITY.md), dan [UI/UX](docs/FRONTEND_UIUX.md).
+
+## 9. Testing dan Video Demo
+
+Cara paling sederhana untuk backend adalah test profile pada bagian Docker. Untuk pytest lokal, siapkan **database PostgreSQL baru yang disposable** bernama berakhiran `_test`; jangan gunakan database demo/development berisi data. Suite mencakup perubahan schema/migration downgrade pada database test.
 
 ```bash
-npm run lint
-npm run typecheck
+# Dari root; sesuaikan izin PostgreSQL lokal
+createdb --owner=helpdesk_user helpdesk_verification_test
+cd backend
+# Ganti USER:PASSWORD sesuai role lokal, bukan kredensial produksi
+export TEST_DATABASE_URL='postgresql+psycopg://USER:PASSWORD@localhost:5432/helpdesk_verification_test'
+export DATABASE_URL="$TEST_DATABASE_URL"
+export M1_TEST_DATABASE_URL="$TEST_DATABASE_URL"
+uv run alembic upgrade head
+uv run pytest -q --tb=short
+uv run alembic check
+```
+
+Di terminal lain, dari root:
+
+```bash
+cd frontend
 npm test
+npm run typecheck
+npm run lint
 npm run build
-npm audit --omit=dev
 ```
 
-M6 Phase 4 verified ESLint, strict typecheck, three focused domain tests, and the production webpack
-build. It also exercised the six required routes, role and tenant isolation, Customer Ticket
-creation, Admin assignment, Agent status workflows, exact 320/375/768/1440px layouts, WebSocket
-disconnect/retry, and two-browser Customer/Agent chat against FastAPI and PostgreSQL. The full
-backend regression suite passed 139 tests on a migrated disposable database. No checked-in browser
-E2E framework exists; the mandatory matrix was run through actual browser sessions rather than
-inferred from unit tests or build success. Exact evidence is in the completed M6 execution plan.
-The production build intentionally uses Next.js's webpack builder.
+Frontend tests yang tersedia memakai Node test runner; ini **bukan** browser E2E. Gunakan dua sesi browser pada skenario demo untuk verifikasi integrasi nyata. Bukti pengujian historis ada di [execution plans](exec-plans/) dan [checklist bonus](docs/ATTACHMENT_VERIFICATION.md); bukan hasil pengujian ulang revisi dokumentasi ini.
 
-### B4 verification evidence
-
-Executed against a newly created, disposable `helpdesk_b4_test` PostgreSQL database, not demo
-data. The Compose test runner applies Alembic migrations, runs pytest, and checks schema drift:
-
-```bash
-docker compose --profile test exec -T test-db createdb -U helpdesk_test helpdesk_b4_test
-docker compose --profile test run --build --rm \
-  -e DATABASE_URL=postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_b4_test \
-  -e TEST_DATABASE_URL=postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_b4_test \
-  -e M1_TEST_DATABASE_URL=postgresql+psycopg://helpdesk_test:local-test-only@test-db:5432/helpdesk_b4_test tests
-```
-
-Result: **214 backend tests PASS**, migrations/schema-drift check PASS. `local-test-only` is the
-public disposable Compose test password, not a production credential. The first run against an
-existing test database had 212 PASS / 2 FAIL because seed tests require an empty database; prior
-browser fixtures were preserved, and the fresh database rerun passed. For another full run,
-create a new explicitly disposable `*_test` database rather than clearing existing data.
-
-From `backend/`, `.venv/bin/ruff check app tests` and `.venv/bin/mypy app` passed. From
-`frontend/`, `npm test` passed 17 tests, and `npm run typecheck`, `npm run lint`, and
-`npm run build` passed. Tests cover committed activity, minimal payloads, tenant/Customer
-isolation, invalid/expired/refresh-token rejection, failed-commit suppression, concurrent list
-delivery, cleanup, reconnect, token replacement, deduplication, and B3 search/pagination.
-Final review reproduced a stale-response race when activity arrived during an existing list
-request (16 PASS / 1 FAIL). Invalidation now supersedes that pre-event request; the added
-regression and the full frontend rerun passed (17 PASS / 0 FAIL).
-
-A real Chrome session against FastAPI/PostgreSQL verified that an external committed status
-and assignment change updates `/tickets` without refresh while preserving active search/status
-filters. A new automated two-independent-browser B4 scenario was **NOT RUN**; real two-client
-FastAPI WebSocket integration is covered by pytest, not claimed as browser E2E. To verify this
-manually, open separate Customer/Agent browser profiles, keep the Agent on `/tickets`, create a
-Customer ticket and send a message, then verify list activity/order and status/assignment changes
-without reload. Repeat with Orbit and another Customer to confirm no unauthorized notices.
-
-## Demo Checklist
-
-Use two isolated browser profiles and keep the backend at one worker. The target recording is 3-5
-minutes:
-
-1. Show Northstar and Orbit as separate businesses; open Northstar Customer 1 and Agent sessions.
-2. Customer 1 creates a ticket with its first message.
-3. The Agent sees and self-assigns the ticket.
-4. Customer and Agent exchange messages without refreshing; reload once to prove persistence.
-5. The Agent changes status and the Customer sees the committed update in real time.
-6. Close a ticket and show that further messages are disabled/rejected.
-7. While authenticated to Northstar, request the seeded Orbit ticket ID and show the non-disclosing 404.
-
-Demo video: **pending final recording and reviewer-access verification**. Do not replace this
-text with a URL until the recording exists and access has been tested.
-
-## Catatan
-
-### Technical decisions
-
-- The application remains a modular monolith with a Next.js client, one FastAPI backend, and PostgreSQL as the source of truth.
-- Backend settings are required and typed. PostgreSQL URLs are validated, and SQLite is not used as a fallback.
-- Credentialed CORS accepts only explicitly configured development origins.
-- Alembic is connected to the shared SQLAlchemy metadata and M1 provides the initial domain migration.
-- Protected M2 requests validate token type and resolve current role and business membership from PostgreSQL instead of authorizing from JWT claims alone.
-- Reusable M3 policies scope ticket lookup by the trusted current User's business and additionally
-  enforce Customer ownership. Assignment and status actor policies preserve non-disclosing 404
-  behavior for inaccessible tickets and related resources.
-- M4 keeps Ticket routers thin and applies creation, list, detail, assignment, lifecycle, rollback,
-  and PostgreSQL row-lock rules in the service layer. Ticket creation persists the first Message
-  in the same transaction, while competing Agent claims are serialized on the Ticket row.
-- M5 keeps WebSocket authentication and Ticket authorization database-backed, uses short-lived
-  sessions for handshake and send operations, persists each Message with the Ticket activity
-  timestamp before broadcasting, and isolates connections by Ticket room.
-- M6 keeps bearer access tokens in memory, restores sessions through the credentialed HttpOnly
-  refresh cookie, centralizes typed REST errors, and loads persisted Ticket history before opening
-  one native WebSocket per mounted Ticket detail view.
-- Mandatory security and functional flows take priority over optional infrastructure and UI polish.
-
-### Known limitations and unfinished work
-
-- Refresh tokens are stateless and are not rotated or immediately revocable in M2.
-- Login limits are in memory, reset on restart, and do not span backend workers or instances;
-  see the login rate-limiting section for proxy, shared-IP, and capacity limitations.
-- Refresh-cookie headers and CORS behavior are covered by TestClient, but persistence and
-  SameSite/Secure behavior have not been manually verified in a real browser deployment.
-- M5 chat and B4 list activity use an in-memory connection manager and require one backend worker.
-  Live delivery does not span processes/instances and has no durable outbox. A crash between
-  commit and broadcast can delay visibility until history is reloaded or the list reconnects/refetches.
-- Idle WebSocket connections are not continuously reauthenticated. Authentication, current User,
-  role, tenant/ownership access, and Ticket status are revalidated on each message send. B4 also
-  revalidates token expiration and current User role/business/ownership before each list delivery.
-- Same-business Customer/assignee integrity cannot be fully expressed by the existing foreign keys
-  and remains an application-service invariant. Future Ticket writers must follow the same row-lock
-  discipline used by M4 for competing state changes.
-- `npm audit --omit=dev` reports no runtime vulnerabilities. The full audit reports a high-severity `braces` advisory through the Next.js ESLint development-tooling chain; npm's proposed automatic fix is a breaking downgrade of `eslint-config-next`, so it was not applied.
-- The mandatory M6 browser matrix was verified manually through browser automation, but the
-  repository does not yet include a dedicated browser-E2E suite. A dedicated VoiceOver or other
-  assistive-technology pass was not run; keyboard, focus, semantics, and responsive checks passed.
-- Manual startup requires a locally provisioned PostgreSQL role and database matching
-  `backend/.env`; the Docker demo provisions its own isolated database automatically.
-- M7 final audit passed the complete backend/frontend gates, disposable PostgreSQL migration and
-  seed checks, real-browser E2E/security flows, and a measured working-candidate setup rehearsal.
-  A dedicated assistive-technology/contrast pass, a 3-5 minute demo recording, and verification
-  from the immutable final revision remain outstanding, so M7 is not complete.
-
-## B7 image attachments — implementation only, verification deferred
-
-Agent and Customer chat composers now support one JPEG, PNG, or WebP per message,
-an optional caption, preview/removal, upload state, inline images, and an accessible
-enlarged view. Admin remains read-only. Images must be at most 5 MiB, 8192 pixels
-per side, and 20 megapixels; animated images are rejected. The server decodes and
-re-encodes accepted images without their original metadata. Re-encoded files must
-also fit the size limit. Text-only messages remain supported.
-
-Docker defaults to `STORAGE_PROVIDER=local` and the persistent `demo_uploads`
-volume. Manual startup defaults to `LOCAL_UPLOAD_DIR=.uploads/attachments`
-relative to the backend working directory. Files are not publicly mounted; all
-downloads require the existing access token and ticket authorization.
-
-Optional S3 configuration uses `STORAGE_PROVIDER=s3`, `AWS_REGION`,
-`AWS_BUCKET_NAME`, and `AWS_S3_PREFIX` (default `helpdesk-mini/attachments/`).
-Prefer the SDK credential chain/IAM role; otherwise supply both
-`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` through your local environment or
-secret manager, never tracked files. Compose accepts these variables without
-requiring them for the local demo. Use a private bucket with Block Public Access
-enabled and scoped `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` permissions
-for the attachment prefix. No public URLs or public ACLs are created.
-
-New dependencies are recorded in `backend/uv.lock`; dependency installation and
-the new `c7e4a682d193` Alembic migration have **not** been executed for B7. Existing
-setup commands remain the installation/migration entry points for the approved
-verification phase. Do not run a schema downgrade against valuable data.
-
-Do not change the local root or S3 bucket without migrating stored objects.
-Back up both PostgreSQL and image storage; database backups alone omit image
-bytes. Restart preserves files, but deleting Docker volumes removes them.
-Storage and PostgreSQL cannot share a transaction: ambiguous failures can leave
-orphaned objects, requiring reconciliation. A timed-out upload may already have
-committed; reload history before retrying. Request-body limits, upload quotas,
-malware scanning, and orphan garbage collection are not implemented. Failed image
-loads conservatively delay mark-read; long image histories can use substantial
-browser memory. Existing single-worker/best-effort WebSocket limitations apply.
-
-All B7 runtime, migration, Docker, browser, security, and regression checks are
-**NOT RUN (deferred)**. Earlier milestone evidence does not verify B7. Required
-scenarios are in [docs/ATTACHMENT_VERIFICATION.md](docs/ATTACHMENT_VERIFICATION.md).
-
-## Milestone Roadmap
-
-| Milestone | Scope | Status |
-|---|---|---|
-| M0 | Runnable frontend/backend foundation, PostgreSQL, Alembic, and verified setup | Complete |
-| M1 | Database models and migrations | Complete |
-| M2 | JWT authentication and securely scoped business user management | Complete |
-| M3 | Comprehensive tenant-authorization audit and isolation tests | Complete |
-| M4 | Ticket management | Complete |
-| M5 | WebSocket chat | Complete |
-| M6 | Required frontend flows | Complete |
-| M7 | Final tests, seed data, documentation, and demo preparation | Final audit complete; pending final evidence |
+**Video demo:** TODO: Tambahkan link video demo
