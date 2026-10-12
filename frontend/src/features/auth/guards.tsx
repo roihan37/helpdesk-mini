@@ -41,8 +41,8 @@ export function PublicOnly({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   useEffect(() => {
-    if (auth.state === "authenticated") router.replace(safeReturnPath(searchParams.get("next")));
-  }, [auth.state, router, searchParams]);
+    if (auth.state === "authenticated" && auth.user) router.replace(safeReturnPath(searchParams.get("next"), auth.user.role));
+  }, [auth.state, auth.user, router, searchParams]);
   if (auth.state === "bootstrapping") return <AuthSkeleton label="Checking your session…" registration={pathname === "/register"} />;
   if (auth.state === "authenticated") return <WorkspaceSkeleton label="Opening tickets…" />;
   return children;

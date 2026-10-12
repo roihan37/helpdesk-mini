@@ -13,8 +13,16 @@ export const roleLabels: Record<Role, string> = {
   customer: "Customer",
 };
 
-export function safeReturnPath(value: string | null) {
+export function safeReturnPath(value: string | null, role: Role) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return "/tickets";
+  try {
+    const url = new URL(value, "http://localhost");
+    if (url.origin !== "http://localhost") return "/tickets";
+    const pathname = decodeURIComponent(url.pathname);
+    if (role !== "admin" && (pathname === "/admin" || pathname.startsWith("/admin/"))) return "/tickets";
+  } catch {
+    return "/tickets";
+  }
   return value;
 }
 

@@ -65,8 +65,8 @@ export function LoginPage() {
     setPending(true);
     setError("");
     try {
-      await auth.signIn(email.trim().toLowerCase(), password);
-      router.replace(safeReturnPath(searchParams.get("next")));
+      const user = await auth.signIn(email.trim().toLowerCase(), password);
+      router.replace(safeReturnPath(searchParams.get("next"), user.role));
     } catch (reason) {
       setError(friendlyError(reason, "Sign in failed. Check your details and try again."));
     } finally {

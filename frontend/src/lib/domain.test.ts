@@ -6,11 +6,24 @@ import type { Message, MessageReadData } from "@/types/api";
 test(
   "safeReturnPath accepts local paths and rejects external redirects",
   () => {
-    assert.equal(safeReturnPath("/tickets/123?status=open"), "/tickets/123?status=open");
-    assert.equal(safeReturnPath("//attacker.example"), "/tickets");
-    assert.equal(safeReturnPath("https://attacker.example"), "/tickets");
+    assert.equal(safeReturnPath("/tickets/123?status=open", "customer"), "/tickets/123?status=open");
+    assert.equal(safeReturnPath("//attacker.example", "admin"), "/tickets");
+    assert.equal(safeReturnPath("https://attacker.example", "admin"), "/tickets");
+    assert.equal(safeReturnPath("/\\attacker.example", "admin"), "/tickets");
   }
 );
+
+test("Agent and Customer logins cannot return to the previous Admin page", () => {
+  for (const role of ["agent", "customer"] as const) {
+    for (const path of ["/admin/users", "/admin/users?tab=team", "/admin/users/", "/admin", "/%61dmin/users", "/tickets/../admin/users"]) {
+      assert.equal(safeReturnPath(path, role), "/tickets");
+    }
+    assert.equal(safeReturnPath(null, role), "/tickets");
+    assert.equal(safeReturnPath("/tickets?page=2", role), "/tickets?page=2");
+  }
+  assert.equal(safeReturnPath("/admin/users", "admin"), "/admin/users");
+  assert.equal(safeReturnPath(null, "admin"), "/tickets");
+});
 
 test(
   "ticket transitions exposed by the UI follow the role matrix",
