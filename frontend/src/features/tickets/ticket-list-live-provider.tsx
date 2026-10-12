@@ -7,16 +7,16 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { startTicketListSubscription, type ListConnectionState } from "./ticket-list-live-socket";
 
 const notices = {
-  "ticket.created": "New ticket activity. Your list is updating.",
-  "ticket.message_created": "New message activity. Your list is updating.",
-  "ticket.status_changed": "Ticket status changed. Your list is updating.",
-  "ticket.assignment_changed": "Ticket assignment changed. Your list is updating."
+  "ticket.created": "New ticket activity",
+  "ticket.message_created": "New message activity",
+  "ticket.status_changed": "Ticket status changed",
+  "ticket.assignment_changed": "Ticket assignment changed"
 };
-const LiveContext = createContext<{ notice: string; connection: ListConnectionState }>({ notice: "", connection: "connecting" });
+const LiveContext = createContext<{ notice: string; ticketIds: string[]; connection: ListConnectionState }>({ notice: "", ticketIds: [], connection: "connecting" });
 
 export function TicketListLiveProvider({ userId, children }: { userId: string | null; children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [activity, setActivity] = useState({ userId: "", notice: "" });
+  const [activity, setActivity] = useState<{ userId: string; notice: string; ticketIds: string[] }>({ userId: "", notice: "", ticketIds: [] });
   const [connection, setConnection] = useState<ListConnectionState>("connecting");
   useEffect(() => {
     if (!userId) return;
@@ -35,9 +35,14 @@ export function TicketListLiveProvider({ userId, children }: { userId: string | 
       stateChanged: setConnection,
       notify: (event) => {
         if (event.type === "ticket.read") return;
+        const notice = notices[event.type];
         if (noticeTimer) clearTimeout(noticeTimer);
-        setActivity({ userId, notice: notices[event.type] });
-        noticeTimer = setTimeout(() => setActivity({ userId, notice: "" }), 4000);
+        setActivity((previous) => ({
+          userId,
+          notice,
+          ticketIds: [...new Set([...(previous.userId === userId ? previous.ticketIds : []), event.data.ticket_id])].slice(-50)
+        }));
+        noticeTimer = setTimeout(() => setActivity({ userId, notice: "", ticketIds: [] }), 4000);
       }
     });
     return () => {
@@ -45,7 +50,7 @@ export function TicketListLiveProvider({ userId, children }: { userId: string | 
       if (noticeTimer) clearTimeout(noticeTimer);
     };
   }, [queryClient, userId]);
-  return <LiveContext.Provider value={{ notice: activity.userId === userId ? activity.notice : "", connection }}>{children}</LiveContext.Provider>;
+  return <LiveContext.Provider value={{ notice: activity.userId === userId ? activity.notice : "", ticketIds: activity.userId === userId ? activity.ticketIds : [], connection }}>{children}</LiveContext.Provider>;
 }
 
 export function useTicketListLive() {

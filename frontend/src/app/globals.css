@@ -195,6 +195,11 @@ h2 { font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -.015
 .ticket-filters .control[type="search"] { width: 220px; font-size: 13px; }
 .ticket-filter-tools { display: grid; gap: 6px; min-width: 0; }
 .ticket-filter-status { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-height: 18px; color: var(--color-text-muted); font-size: 12px; line-height: 18px; }
+.ticket-activity-notice { display: inline-flex; align-items: center; gap: 6px; color: #244b94; animation: ticket-notice-enter 180ms ease-out; }
+.ticket-activity-notice .icon { width: 14px; height: 14px; flex-shrink: 0; }
+.ticket-table tbody tr, .ticket-list-mobile li { transition: background-color 180ms ease-out, box-shadow 180ms ease-out; }
+.ticket-table tbody tr.ticket-recent-activity, .ticket-list-mobile li.ticket-recent-activity { background: #edf3ff; box-shadow: inset 3px 0 #648bc8; }
+@keyframes ticket-notice-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 .ticket-loading-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--color-info); animation: pulse 1.4s ease-in-out infinite; }
 .skeleton-ticket-count { width: 28px; height: 22px; }
 .skeleton-ticket-summary { width: 190px; max-width: 100%; height: 12px; }

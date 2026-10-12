@@ -76,7 +76,6 @@ export function TicketListPage() {
         ? <Link className="button button-primary" href="/tickets/new"><Icon name="plus" />New ticket</Link>
         : null}
     </header>
-    {live.notice ? <Alert>{live.notice}</Alert> : null}
     {live.connection === "reconnecting"
       ? <Alert>Live updates are disconnected. Reconnecting automatically; you can still use the ticket list.</Alert>
       : null}
@@ -116,7 +115,9 @@ export function TicketListPage() {
             </Field>
           </div>
           <span className="ticket-filter-status" role="status" aria-live="polite" aria-atomic="true">
-            {loadingLabel ? <><span className="ticket-loading-dot" aria-hidden="true" />{loadingLabel}</> : null}
+            {live.notice && !resultsLoading
+              ? <span className="ticket-activity-notice"><Icon name="message" />{live.notice}</span>
+              : loadingLabel ? <><span className="ticket-loading-dot" aria-hidden="true" />{loadingLabel}</> : null}
           </span>
         </div>
       </div>
@@ -149,7 +150,7 @@ export function TicketListPage() {
                 : "New support requests will appear here."}
             </EmptyState>
           : null}
-        {!resultsLoading && items && items.length > 0 ? <TicketRows tickets={items} /> : null}
+        {!resultsLoading && items && items.length > 0 ? <TicketRows tickets={items} activeIds={live.ticketIds} /> : null}
       </div>
       {pagination
         ? <div className="panel-footer ticket-pagination">
@@ -171,7 +172,7 @@ export function TicketListPage() {
   </div>;
 }
 
-function TicketRows({ tickets }: { tickets: TicketListItem[] }) {
+function TicketRows({ tickets, activeIds }: { tickets: TicketListItem[]; activeIds: string[] }) {
   return <>
     <div className="table-wrap ticket-table">
       <table>
@@ -185,7 +186,7 @@ function TicketRows({ tickets }: { tickets: TicketListItem[] }) {
           </tr>
         </thead>
         <tbody>
-          {tickets.map((ticket) => <tr key={ticket.id}>
+          {tickets.map((ticket) => <tr key={ticket.id} className={activeIds.includes(ticket.id) ? "ticket-recent-activity" : undefined}>
             <td>
               <span className="ticket-subject-row">
                 <Link href={`/tickets/${encodeURIComponent(ticket.id)}`}>{ticket.subject}</Link>
@@ -218,7 +219,7 @@ function TicketRows({ tickets }: { tickets: TicketListItem[] }) {
       </table>
     </div>
     <ul className="ticket-list-mobile">
-      {tickets.map((ticket) => <li key={ticket.id}>
+      {tickets.map((ticket) => <li key={ticket.id} className={activeIds.includes(ticket.id) ? "ticket-recent-activity" : undefined}>
         <Link href={`/tickets/${encodeURIComponent(ticket.id)}`}>
           <span className="mobile-ticket-heading">
             <span>

@@ -365,8 +365,10 @@ is displayed as sent.
 One authenticated session owns one `/ws/tickets` subscription, separate from a mounted detail
 view's chat socket. Coalesce activity into ticket-list query invalidation over 250 ms; preserve
 current page, search, and status. Never filter protected events on the frontend for security.
-Show only a small generic inline activity notice on `/tickets`, cleared after four seconds.
-Use existing Alert styling and polite status announcements; do not add a notifications center
+Show a compact generic activity notice in the reserved filter-status area on `/tickets`, cleared
+after four seconds, without inserting a banner that shifts the list. Use a 180ms entrance and
+soft-blue row highlight for affected visible tickets on desktop/mobile; honor reduced motion.
+Keep pagination, filters, focus, and latest-activity ordering unchanged. Use polite status announcements; do not add a notifications center
 or unread badges as part of B4. Show a subtle reconnect/offline message without blocking REST usage.
 
 Ignore duplicate event type/Ticket ID/timestamp combinations, refetch on reconnect, replace
