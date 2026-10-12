@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     aws_region: str | None = None
     aws_bucket_name: str | None = None
     aws_s3_prefix: str = "helpdesk-mini/attachments/"
+    refresh_cookie_samesite: Literal["lax", "none"] = "lax"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -36,8 +37,14 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def require_postgresql(cls, value: str) -> str:
-        if not value.startswith(("postgresql://", "postgresql+psycopg://")):
+        if value.startswith("postgresql://"):
+            return "postgresql+psycopg://" + value.removeprefix(
+                "postgresql://"
+            )
+
+        if not value.startswith("postgresql+psycopg://"):
             raise ValueError("DATABASE_URL must use PostgreSQL")
+
         return value
 
     @field_validator("cors_origins", mode="before")
