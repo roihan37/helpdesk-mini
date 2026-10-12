@@ -184,4 +184,4 @@ npm run build
 
 Frontend tests yang tersedia memakai Node test runner; ini **bukan** browser E2E. Gunakan dua sesi browser pada skenario demo untuk verifikasi integrasi nyata. Bukti pengujian historis ada di [execution plans](exec-plans/) dan [checklist bonus](docs/ATTACHMENT_VERIFICATION.md); bukan hasil pengujian ulang revisi dokumentasi ini.
 
-**Video demo:** TODO: Tambahkan link video demo
+**Video demo:** TODO: [Vidio Demo HelpDesk Mini](https://drive.google.com/file/d/1xietUkvIYXGsDzfuCSezOv9ZN3R65a-Q/view?usp=drive_link).
